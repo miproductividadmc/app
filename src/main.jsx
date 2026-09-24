@@ -141,6 +141,63 @@ function Admin({profile}){
   await supabase.from('importaciones').update({estado:'publicado',publicado_en:new Date().toISOString()}).eq('id',ir.data.id);const up=await supabase.from('periodos').update({publicado:true,publicado_en:new Date().toISOString(),publicado_por:profile.id}).eq('id',period.id);if(up.error)throw up.error;
   setReview(null);setFile(null);setMsg(`Publicado: ${review.valid.length} registros. Picking ${String(month).padStart(2,'0')}/${year} fue reemplazado sin duplicar.`)
  }catch(e){setMsg(`No se publicó. Detalle: ${e.message}`)}finally{setBusy(false)}}
- return <><Header profile={profile}/><main><div className="admin-top"><div><small>PANEL ADMINISTRADOR</small><h1>{section==='carga'?'Carga mensual':section==='analisis'?'Análisis del personal':'Gestión de accesos'}</h1></div><div className="admin-nav"><button className={section==='carga'?'sel':''} onClick={()=>setSection('carga')}><Upload/>Carga mensual</button><button className={section==='analisis'?'sel':''} onClick={()=>setSection('analisis')}><TrendingUp/>Análisis</button><button className={section==='usuarios'?'sel':''} onClick={()=>setSection('usuarios')}><ShieldCheck/>Accesos y claves</button></div></div>{section==='carga'&&<div className="admin-section"><div className="title"><small>PANEL ADMINISTRADOR</small><h1>Carga mensual</h1><p>La última carga válida reemplaza el mismo módulo, mes y año.</p></div><section className="panel admin"><label>Tipo de archivo</label><select value={type} onChange={e=>{setType(e.target.value);setFile(null);setReview(null);setMsg('')}}><option value="manual">Clasificación manual</option><option value="picking">Picking</option><option value="gatera">Errores en gatera</option><option value="voice">Errores Voice Picking</option></select><div className="twocol"><div><label>Mes</label><input type="number" min="1" max="12" value={month} onChange={e=>setMonth(+e.target.value)}/></div><div><label>Año</label><input type="number" value={year} onChange={e=>setYear(+e.target.value)}/></div></div><label className="upload"><Upload/>Seleccionar Excel<input type="file" accept=".xlsx,.xls" onChange={e=>{setFile(e.target.files[0]);setReview(null);setMsg('')}}/></label>{file&&<p><b>{file.name}</b></p>}<button className="primary" onClick={inspect} disabled={busy}>{busy?'Procesando...':'Revisar archivo'}</button>{review&&<div className="notice"><div><b>Vista previa de {review.tipo==='manual'?'Clasificación manual':review.tipo==='gatera'?'Errores en gatera':review.tipo==='voice'?'Errores Voice Picking':'Picking'}</b><p>Filas leídas: {review.read}</p><p>Registros válidos: {review.valid.length}</p>{review.tipo==='gatera'&&<p>Registros administrativos especiales: {review.special?.length||0}</p>}{review.tipo==='voice'&&<p>Errores detectados: {fmt(review.totalErrores)}</p>}<p>Operarios no reconocidos: {review.unknown.length}</p><p>Duplicados internos: {review.duplicates}</p><p>Filas descartadas: {review.discarded}</p>{review.tipo==='manual'&&<div className="month-summary">{Object.entries(review.porMes||{}).map(([m,c])=><p key={m}><b>{nombreMes(Number(m))} {year}:</b> {c} registros</p>)}</div>}{review.unknown.length>0&&<p className="note">Pendientes: {review.unknown.slice(0,8).join(', ')}</p>}<button className="primary" onClick={publish} disabled={busy}>{review.tipo==='manual'?'Reemplazar y publicar todos los meses':'Reemplazar y publicar'}</button></div></div>}{msg&&<div className="notice"><AlertTriangle/>{msg}</div>}<p className="note">Publicación real habilitada para los cuatro módulos.</p></section></div>}{section==='analisis'&&<AnalisisPersonal/>}{section==='usuarios'&&<GestionUsuarios/>}</main></>
+ return <><Header profile={profile}/><main><div className="admin-top"><div><small>PANEL ADMINISTRADOR</small><h1>{section==='carga'?'Carga mensual':section==='analisis'?'Análisis del personal':'Gestión de accesos'}</h1></div><div className="admin-nav"><button className={section==='carga'?'sel':''} onClick={()=>setSection('carga')}><Upload/>Carga mensual</button><button className={section==='analisis'?'sel':''} onClick={()=>setSection('analisis')}><TrendingUp/>Análisis</button><button className={section==='usuarios'?'sel':''} onClick={()=>setSection('usuarios')}><ShieldCheck/>Accesos y claves</button></div></div>{section==='carga'&&<div className="admin-section"><div className="title"><small>PANEL ADMINISTRADOR</small><h1>Carga mensual</h1><p>La última carga válida reemplaza el mismo módulo, mes y año.</p></div><section className="panel admin"><label>Tipo de archivo</label>
+
+<div className="upload-type-buttons">
+
+  <button
+    type="button"
+    className={type === 'manual' ? 'active' : ''}
+    onClick={()=>{
+      setType('manual');
+      setFile(null);
+      setReview(null);
+      setMsg('');
+    }}
+  >
+    📦 Clasificación
+  </button>
+
+  <button
+    type="button"
+    className={type === 'picking' ? 'active' : ''}
+    onClick={()=>{
+      setType('picking');
+      setFile(null);
+      setReview(null);
+      setMsg('');
+    }}
+  >
+    📈 Picking
+  </button>
+
+  <button
+    type="button"
+    className={type === 'voice' ? 'active' : ''}
+    onClick={()=>{
+      setType('voice');
+      setFile(null);
+      setReview(null);
+      setMsg('');
+    }}
+  >
+    🎧 Errores Voice
+  </button>
+
+  <button
+    type="button"
+    className={type === 'gatera' ? 'active' : ''}
+    onClick={()=>{
+      setType('gatera');
+      setFile(null);
+      setReview(null);
+      setMsg('');
+    }}
+  >
+    ⚠️ Errores Gatera
+  </button>
+
+</div>
+<div className="twocol"><div><label>Mes</label><input type="number" min="1" max="12" value={month} onChange={e=>setMonth(+e.target.value)}/></div><div><label>Año</label><input type="number" value={year} onChange={e=>setYear(+e.target.value)}/></div></div><label className="upload"><Upload/>Seleccionar Excel<input type="file" accept=".xlsx,.xls" onChange={e=>{setFile(e.target.files[0]);setReview(null);setMsg('')}}/></label>{file&&<p><b>{file.name}</b></p>}<button className="primary" onClick={inspect} disabled={busy}>{busy?'Procesando...':'Revisar archivo'}</button>{review&&<div className="notice"><div><b>Vista previa de {review.tipo==='manual'?'Clasificación manual':review.tipo==='gatera'?'Errores en gatera':review.tipo==='voice'?'Errores Voice Picking':'Picking'}</b><p>Filas leídas: {review.read}</p><p>Registros válidos: {review.valid.length}</p>{review.tipo==='gatera'&&<p>Registros administrativos especiales: {review.special?.length||0}</p>}{review.tipo==='voice'&&<p>Errores detectados: {fmt(review.totalErrores)}</p>}<p>Operarios no reconocidos: {review.unknown.length}</p><p>Duplicados internos: {review.duplicates}</p><p>Filas descartadas: {review.discarded}</p>{review.tipo==='manual'&&<div className="month-summary">{Object.entries(review.porMes||{}).map(([m,c])=><p key={m}><b>{nombreMes(Number(m))} {year}:</b> {c} registros</p>)}</div>}{review.unknown.length>0&&<p className="note">Pendientes: {review.unknown.slice(0,8).join(', ')}</p>}<button className="primary" onClick={publish} disabled={busy}>{review.tipo==='manual'?'Reemplazar y publicar todos los meses':'Reemplazar y publicar'}</button></div></div>}{msg&&<div className="notice"><AlertTriangle/>{msg}</div>}<p className="note">Publicación real habilitada para los cuatro módulos.</p></section></div>}{section==='analisis'&&<AnalisisPersonal/>}{section==='usuarios'&&<GestionUsuarios/>}</main></>
 }
 createRoot(document.getElementById('root')).render(<App/>);
