@@ -32,65 +32,14 @@ function excelFecha(v){if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(
 function segundos(v){if(v==null||v==='')return null;if(typeof v==='number')return Math.round(v<2?v*86400:v);const m=String(v).match(/^(\d+):(\d+)(?::(\d+))?/);return m?(+m[1]*3600)+(+m[2]*60)+ +(m[3]||0):null}
 function hora(v){if(v==null||v==='')return null;if(typeof v==='number')return XLSX.SSF.format('hh:mm:ss',v);return String(v).slice(0,8)}
 async function insertarLotes(tabla,filas){for(let i=0;i<filas.length;i+=250){const{error}=await supabase.from(tabla).insert(filas.slice(i,i+250));if(error)throw error}}
-function AnalisisPersonal(){
-const [periodo,setPeriodo]=useState('mes');
+function AnalisisPersonal() {
 
-return (
-
-  <section className="panel people-analysis">
-
-    <div className="analysis-title">
-      <div>
-        <small>INTELIGENCIA OPERATIVA</small>
-        <h2>Centro de Control</h2>
-        <p>
-          Productividad, calidad, errores y desempeño general.
-        </p>
-      </div>
-    </div>
-
-    <div className="analysis-filters">
-
-      <label>
-        Período
-        <select
-          value={periodo}
-          onChange={e=>setPeriodo(e.target.value)}
-        >
-          <option value="dia">Día</option>
-          <option value="semana">Semana</option>
-          <option value="quincena">Quincena</option>
-          <option value="mes">Mes</option>
-          <option value="anio">Año</option>
-        </select>
-      </label>
-
-    </div>
-
-    <div className="analysis-kpis">
-
-      <div>
-        <span>📈 PRODUCTIVIDAD</span>
-        <b>--</b>
-        <small>Productividad general</small>
-      </div>
-
-      <div>
-        <span>🎯 CUMPLIMIENTO</span>
-        <b>--</b>
-        <small>Cumplimiento general</small>
-      </div>
-
-      <div>
-        <
-  const [periodo,setPeriodo]=useState('mes');
+  const [periodo, setPeriodo] = useState('mes');
 
   return (
-
     <section className="panel people-analysis">
 
       <div className="analysis-title">
-
         <div>
           <small>INTELIGENCIA OPERATIVA</small>
           <h2>Centro de Control</h2>
@@ -98,16 +47,14 @@ return (
             Productividad, calidad, errores y desempeño general.
           </p>
         </div>
-
       </div>
 
       <div className="analysis-filters">
-
         <label>
           Período
           <select
             value={periodo}
-            onChange={e=>setPeriodo(e.target.value)}
+            onChange={e => setPeriodo(e.target.value)}
           >
             <option value="dia">Día</option>
             <option value="semana">Semana</option>
@@ -116,7 +63,6 @@ return (
             <option value="anio">Año</option>
           </select>
         </label>
-
       </div>
 
       <div className="analysis-kpis">
@@ -124,33 +70,25 @@ return (
         <div>
           <span>📈 PRODUCTIVIDAD</span>
           <b>--</b>
-          <small>
-            Productividad general
-          </small>
+          <small>Productividad general</small>
         </div>
 
         <div>
           <span>🎯 CUMPLIMIENTO</span>
           <b>--</b>
-          <small>
-            Cumplimiento objetivo
-          </small>
+          <small>Cumplimiento general</small>
         </div>
 
         <div>
           <span>✅ CALIDAD</span>
           <b>--%</b>
-          <small>
-            Error % general
-          </small>
+          <small>Error % general</small>
         </div>
 
         <div>
           <span>📦 ACTIVIDAD</span>
           <b>--</b>
-          <small>
-            Packs y pallets
-          </small>
+          <small>Packs y pallets</small>
         </div>
 
       </div>
@@ -160,141 +98,81 @@ return (
         <div className="smart-card">
           <span>🏆 MEJOR OPERADOR</span>
           <b>--</b>
-          <small>
-            Mayor productividad con menor error
-          </small>
+          <small>Mayor productividad y calidad</small>
         </div>
 
         <div className="smart-card">
           <span>🚨 REQUIERE ATENCIÓN</span>
           <b>--</b>
-          <small>
-            Mayor porcentaje de error
-          </small>
+          <small>Mayor porcentaje de error</small>
         </div>
 
         <div className="smart-card">
           <span>🏟️ MEJOR CANCHA</span>
           <b>--</b>
-          <small>
-            Mejor desempeño operativo
-          </small>
+          <small>Mayor rendimiento</small>
         </div>
 
         <div className="smart-card">
           <span>🔥 MAYOR MEJORA</span>
           <b>--%</b>
-          <small>
-            Comparado contra período anterior
-          </small>
+          <small>Comparado al período anterior</small>
         </div>
 
       </div>
 
       <div className="analysis-nav">
-
-        <button className="sel">
-          Dashboard
-        </button>
-
-        <button>
-          Rankings
-        </button>
-
-        <button>
-          ADN Operativo
-        </button>
-
-        <button>
-          Calidad
-        </button>
-
-        <button>
-          Canchas
-        </button>
-
-        <button>
-          Alertas
-        </button>
-
+        <button className="sel">Dashboard</button>
+        <button>Rankings</button>
+        <button>ADN Operativo</button>
+        <button>Calidad</button>
+        <button>Canchas</button>
+        <button>Alertas</button>
       </div>
 
       <div className="executive-grid">
 
         <section>
-
-          <h3>
-            🔥 Insights
-          </h3>
+          <h3>🔥 Insights</h3>
 
           <div className="trend-row">
-            <span>
-              Mayor productividad
-            </span>
-            <b>
-              --
-            </b>
+            <span>Mejor productividad</span>
+            <b>--</b>
           </div>
 
           <div className="trend-row">
-            <span>
-              Mejor calidad
-            </span>
-            <b>
-              --
-            </b>
+            <span>Mejor calidad</span>
+            <b>--</b>
           </div>
 
           <div className="trend-row">
-            <span>
-              Más errores
-            </span>
-            <b>
-              --
-            </b>
+            <span>Mayor tasa de error</span>
+            <b>--</b>
           </div>
-
         </section>
 
         <section>
-
-          <h3>
-            🚨 Alertas
-          </h3>
+          <h3>🚨 Alertas</h3>
 
           <div className="trend-row">
-            <span>
-              Error superior a 1%
-            </span>
-            <b>
-              --
-            </b>
+            <span>Error superior a 1%</span>
+            <b>--</b>
           </div>
 
           <div className="trend-row">
-            <span>
-              Debajo de Target
-            </span>
-            <b>
-              --
-            </b>
+            <span>Debajo del target</span>
+            <b>--</b>
           </div>
 
           <div className="trend-row">
-            <span>
-              Caída productividad
-            </span>
-            <b>
-              --
-            </b>
+            <span>Caída de productividad</span>
+            <b>--</b>
           </div>
-
         </section>
 
       </div>
 
     </section>
-
   );
 
 }
