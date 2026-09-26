@@ -67,17 +67,37 @@ function AnalisisPersonal() {
 
       <div className="analysis-kpis">
 
-        <div>
-          <span>📈 PRODUCTIVIDAD</span>
-          <b>--</b>
-          <small>Productividad general</small>
-        </div>
+<div>
+  <span>📈 PRODUCTIVIDAD</span>
 
-        <div>
-          <span>🎯 CUMPLIMIENTO</span>
-          <b>--</b>
-          <small>Cumplimiento general</small>
-        </div>
+  <b>
+    {datos ? fmt(
+      datos.picking.reduce((a,r)=>a+Number(r.packs||0),0) /
+      Math.max(
+        1,
+        datos.picking.reduce((a,r)=>a+Number(r.duracion_segundos||0),0) / 3600
+      )
+    ) : '--'}
+  </b>
+
+  <small>
+    Bultos por hora reales
+  </small>
+</div>
+
+       <div>
+  <span>🎯 CUMPLIMIENTO</span>
+
+  <b>
+    {actual
+      ? `${actual.cum.toFixed(1)}%`
+      : '--'}
+  </b>
+
+  <small>
+    Objetivo cumplido
+  </small>
+</div>
 
         <div>
           <span>✅ CALIDAD</span>
