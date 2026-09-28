@@ -203,7 +203,7 @@ if (targetPromedioCalculado > 0) {
 
         <div>
           <span>🎯 CUMPLIMIENTO</span>
-          <b>--</b>
+        <b>{cumplimientoGeneral}</b>
           <small>Cumplimiento general</small>
         </div>
 
