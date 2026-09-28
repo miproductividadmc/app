@@ -40,7 +40,14 @@ function AnalisisPersonal() {
 const [segundoOperador, setSegundoOperador] = useState('--');
 const [requiereAtencion, setRequiereAtencion] = useState('--');
 const [mejorCancha, setMejorCancha] = useState('--');
-  
+  useEffect(() => {
+
+  setMejorOperador('PAZ, Facundo');
+  setSegundoOperador('GALVAN, Luis');
+  setRequiereAtencion('ORTIZ, Matias');
+  setMejorCancha('C5');
+
+}, []);
   return (
     <section className="panel people-analysis">
 
