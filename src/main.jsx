@@ -315,10 +315,41 @@ if (targetPromedioCalculado > 0) {
 </div>
 {tab === 'rankings' && (
   <section className="panel">
+
     <h2>🏆 Rankings</h2>
 
+    <div className="analysis-kpis">
+
+      <div>
+        <span>🥇 TOP 1</span>
+        <b>{mejorOperador}</b>
+        <small>Mayor productividad</small>
+      </div>
+
+      <div>
+        <span>🥈 TOP 2</span>
+        <b>{segundoOperador}</b>
+        <small>Segundo mejor rendimiento</small>
+      </div>
+
+      <div>
+        <span>🚨 ATENCIÓN</span>
+        <b>{requiereAtencion}</b>
+        <small>Menor rendimiento</small>
+      </div>
+
+      <div>
+        <span>🎯 MEJOR CANCHA</span>
+        <b>{mejorCancha}</b>
+        <small>Mayor productividad</small>
+      </div>
+
+    </div>
+
     <div className="scroll">
+
       <table>
+
         <thead>
           <tr>
             <th>#</th>
@@ -327,15 +358,20 @@ if (targetPromedioCalculado > 0) {
         </thead>
 
         <tbody>
+
           {rankingOperadores.map((op, i) => (
             <tr key={i}>
               <td>{i + 1}</td>
               <td>{op}</td>
             </tr>
           ))}
+
         </tbody>
+
       </table>
+
     </div>
+
   </section>
 )}
       {tab === 'adn' && (
