@@ -93,33 +93,33 @@ function AnalisisPersonal() {
 
       </div>
 
-     <div className="smart-kpi-grid">
+      <div className="smart-kpi-grid">
 
-    <div className="smart-card">
-        <span>🏆 MEJOR OPERADOR</span>
-        <b>--</b>
-        <small>Mayor productividad</small>
-    </div>
+        <div className="smart-card">
+          <span>🏆 MEJOR OPERADOR</span>
+          <b>--</b>
+          <small>Mayor productividad</small>
+        </div>
 
-    <div className="smart-card">
-        <span>🥈 SEGUNDO OPERADOR</span>
-        <b>--</b>
-        <small>Segundo mejor rendimiento</small>
-    </div>
+        <div className="smart-card">
+          <span>🥈 SEGUNDO OPERADOR</span>
+          <b>--</b>
+          <small>Segundo mejor rendimiento</small>
+        </div>
 
-    <div className="smart-card">
-        <span>🚨 REQUIERE ATENCIÓN</span>
-        <b>--</b>
-        <small>Mayor porcentaje de error</small>
-    </div>
+        <div className="smart-card">
+          <span>🚨 REQUIERE ATENCIÓN</span>
+          <b>--</b>
+          <small>Mayor porcentaje de error</small>
+        </div>
 
-    <div className="smart-card">
-        <span>🎯 MEJOR CANCHA</span>
-        <b>--</b>
-        <small>Mayor rendimiento</small>
-    </div>
+        <div className="smart-card">
+          <span>🎯 MEJOR CANCHA</span>
+          <b>--</b>
+          <small>Mayor rendimiento</small>
+        </div>
 
-</div>
+      </div>
 
       <div className="analysis-nav">
         <button className="sel">Dashboard</button>
@@ -163,17 +163,18 @@ function AnalisisPersonal() {
             <span>Debajo del target</span>
             <b>--</b>
           </div>
-      <div className="trend-row">
-        <span>Caída de productividad</span>
-        <b>--</b>
+
+          <div className="trend-row">
+            <span>Caída de productividad</span>
+            <b>--</b>
+          </div>
+        </section>
+
       </div>
 
     </section>
-
-  </div>
-
   );
-}  
+}
 function GestionUsuarios(){const[empleados,setEmpleados]=useState([]),[buscar,setBuscar]=useState(''),[clave,setClave]=useState('quilmes'),[busy,setBusy]=useState(false),[mensaje,setMensaje]=useState('');async function cargar(){const{data,error}=await supabase.from('empleados').select('id,legajo,apellido_nombre,turno,tarea,estado,activo').order('apellido_nombre');if(error)setMensaje(error.message);else setEmpleados(data||[])}useEffect(()=>{cargar()},[]);async function ejecutar(body){setBusy(true);setMensaje('Procesando...');const{data,error}=await supabase.functions.invoke('gestion-usuarios',{body});if(error)setMensaje(`No se pudo completar: ${error.message}`);else if(data?.error)setMensaje(`No se pudo completar: ${data.error}`);else setMensaje(data?.mensaje||`Proceso terminado. Creados: ${data?.creados||0} · Existentes: ${data?.existentes||0} · Errores: ${data?.errores||0}`);setBusy(false);return data}async function crear(e){await ejecutar({accion:'crear_usuario',legajo:String(e.legajo),password:clave})}async function resetear(e){if(!window.confirm(`¿Restablecer la contraseña de ${e.apellido_nombre}?`))return;await ejecutar({accion:'restablecer_password',legajo:String(e.legajo),password:clave})}async function acceso(e,habilitar){if(!window.confirm(`¿${habilitar?'Habilitar':'Deshabilitar'} el acceso de ${e.apellido_nombre}?`))return;await ejecutar({accion:'cambiar_acceso',legajo:String(e.legajo),habilitar})}async function crearActivos(){if(!window.confirm('Se crearán o vincularán las cuentas de todo el personal activo. ¿Continuar?'))return;await ejecutar({accion:'crear_activos',password:clave})}const q=normal(buscar),lista=empleados.filter(e=>!q||normal(e.apellido_nombre).includes(q)||String(e.legajo).includes(buscar.trim()));return <section className="panel users-admin"><div className="users-title"><div><small>GESTIÓN DE ACCESOS</small><h2>Usuarios del personal</h2><p>Crear cuentas, restablecer contraseñas y administrar accesos.</p></div><button className="primary compact" onClick={crearActivos} disabled={busy}>Crear accesos del personal activo</button></div><div className="users-controls"><div><label>Buscar por legajo o nombre</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="Ej.: 29025727 o FOLETTO"/></div><div><label>Contraseña para crear o restablecer</label><input type="text" value={clave} onChange={e=>setClave(e.target.value)} minLength="6"/></div></div>{mensaje&&<div className="notice"><AlertTriangle/>{mensaje}</div>}<div className="scroll users-table"><table><thead><tr>{['Legajo','Nombre','Turno','Tarea','Estado','Acciones'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{lista.map(e=><tr key={e.id}><td><b>{e.legajo}</b></td><td>{e.apellido_nombre}</td><td>{e.turno}</td><td>{e.tarea}</td><td><span className={`user-state ${e.activo?'active':'inactive'}`}>{e.estado}</span></td><td><div className="user-actions"><button onClick={()=>crear(e)} disabled={busy}>Crear/vincular</button><button onClick={()=>resetear(e)} disabled={busy}>Resetear clave</button><button onClick={()=>acceso(e,true)} disabled={busy}>Habilitar</button><button className="danger" onClick={()=>acceso(e,false)} disabled={busy}>Deshabilitar</button></div></td></tr>)}</tbody></table></div><p className="note">Las personas suspendidas permanecen en la nómina y conservan sus datos históricos. El acceso se administra por separado.</p></section>}
 function Admin({profile}){
  const[section,setSection]=useState('carga'),[type,setType]=useState('picking'),[year,setYear]=useState(2026),[month,setMonth]=useState(9),[file,setFile]=useState(null),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[review,setReview]=useState(null);
