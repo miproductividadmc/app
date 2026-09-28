@@ -93,9 +93,7 @@ function AnalisisPersonal() {
 
       </div>
 
-      <div className="smart-kpi-grid">
-
-        <div className="smart-kpi-grid">
+     <div className="smart-kpi-grid">
 
     <div className="smart-card">
         <span>🏆 MEJOR OPERADOR</span>
@@ -171,9 +169,7 @@ function AnalisisPersonal() {
             <b>--</b>
           </div>
        
-        </div>
-
-    </section>
+       </section>
   );
 
 }
