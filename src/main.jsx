@@ -338,6 +338,92 @@ if (targetPromedioCalculado > 0) {
     </div>
   </section>
 )}
+      {tab === 'adn' && (
+  <section className="panel">
+    <h2>🧬 ADN Operativo</h2>
+
+    <div className="analysis-kpis">
+
+      <div>
+        <span>🏆 OPERADOR TOP</span>
+        <b>{mejorOperador}</b>
+        <small>Mayor productividad promedio</small>
+      </div>
+
+      <div>
+        <span>📈 PRODUCTIVIDAD</span>
+        <b>{productividadGeneral}</b>
+        <small>Productividad promedio</small>
+      </div>
+
+      <div>
+        <span>🎯 CUMPLIMIENTO</span>
+        <b>{cumplimientoGeneral}</b>
+        <small>Cumplimiento general</small>
+      </div>
+
+      <div>
+        <span>✅ CALIDAD</span>
+        <b>{calidadGeneral}</b>
+        <small>Calidad general</small>
+      </div>
+
+    </div>
+
+    <div className="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Indicador</th>
+            <th>Resultado</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr>
+            <td>Mejor Operador</td>
+            <td>{mejorOperador}</td>
+          </tr>
+
+          <tr>
+            <td>Segundo Operador</td>
+            <td>{segundoOperador}</td>
+          </tr>
+
+          <tr>
+            <td>Requiere Atención</td>
+            <td>{requiereAtencion}</td>
+          </tr>
+
+          <tr>
+            <td>Mejor Cancha</td>
+            <td>{mejorCancha}</td>
+          </tr>
+
+          <tr>
+            <td>Productividad General</td>
+            <td>{productividadGeneral}</td>
+          </tr>
+
+          <tr>
+            <td>Cumplimiento</td>
+            <td>{cumplimientoGeneral}</td>
+          </tr>
+
+          <tr>
+            <td>Calidad</td>
+            <td>{calidadGeneral}</td>
+          </tr>
+
+          <tr>
+            <td>Actividad</td>
+            <td>{actividadGeneral}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+)}
       {tab === 'dashboard' && (
 <div className="executive-grid">
 
