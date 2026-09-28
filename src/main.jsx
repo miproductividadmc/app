@@ -35,7 +35,10 @@ async function insertarLotes(tabla,filas){for(let i=0;i<filas.length;i+=250){con
 function AnalisisPersonal() {
 
   const [periodo, setPeriodo] = useState('mes');
-
+  const mejorOperador = 'PAZ, Facundo';
+const segundoOperador = 'GALVAN, Luis';
+const requiereAtencion = 'ORTIZ, Matias';
+const mejorCancha = 'C5';
   return (
     <section className="panel people-analysis">
 
@@ -97,25 +100,26 @@ function AnalisisPersonal() {
 
   <div>
     <span>🏆 MEJOR OPERADOR</span>
-    <b>--</b>
+<b>{mejorOperador}</b>
     <small>Mayor productividad</small>
   </div>
 
   <div>
     <span>🥈 SEGUNDO OPERADOR</span>
-    <b>--</b>
+<b>{segundoOperador}</b>
     <small>Segundo mejor rendimiento</small>
   </div>
 
   <div>
     <span>🚨 REQUIERE ATENCIÓN</span>
-    <b>--</b>
+<b>{requiereAtencion}</b>
+``
     <small>Mayor porcentaje de error</small>
   </div>
 
   <div>
     <span>🎯 MEJOR CANCHA</span>
-    <b>--</b>
+<b>{mejorCancha}</b>
     <small>Mayor rendimiento</small>
   </div>
 
