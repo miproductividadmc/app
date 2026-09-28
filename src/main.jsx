@@ -70,7 +70,18 @@ setActividadGeneral(
   data.length.toString()
 );
     
-    setCalidadGeneral('0%');
+    const porcentajeCalidad =
+  data.length > 0
+    ? (
+        data.filter(r =>
+          Number(r.desvio || 0) === 0
+        ).length / data.length
+      ) * 100
+    : 0;
+
+setCalidadGeneral(
+  porcentajeCalidad.toFixed(1) + '%'
+);
     const targetPromedioCalculado =
   data.reduce(
     (a, r) => a + Number(r.target || 0),
