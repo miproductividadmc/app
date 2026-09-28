@@ -53,7 +53,7 @@ const [actividadGeneral, setActividadGeneral] = useState('--');
 
     const { data, error } = await supabase
       .from('picking')
-      .select('cancha, productividad, datos_originales');
+.select('cancha, productividad, target, datos_originales');
 
     if (error || !data?.length) return;
 const productividadPromedio =
