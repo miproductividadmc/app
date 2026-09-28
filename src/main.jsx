@@ -40,7 +40,12 @@ function AnalisisPersonal() {
 const [segundoOperador, setSegundoOperador] = useState('--');
 const [requiereAtencion, setRequiereAtencion] = useState('--');
 const [mejorCancha, setMejorCancha] = useState('--');
- useEffect(() => {
+  
+const [productividadGeneral, setProductividadGeneral] = useState('--');
+const [cumplimientoGeneral, setCumplimientoGeneral] = useState('--');
+const [calidadGeneral, setCalidadGeneral] = useState('--');
+const [actividadGeneral, setActividadGeneral] = useState('--');
+  useEffect(() => {
 
   async function cargarRanking() {
 
@@ -49,7 +54,19 @@ const [mejorCancha, setMejorCancha] = useState('--');
       .select('cancha, productividad, datos_originales');
 
     if (error || !data?.length) return;
+const productividadPromedio =
+  data.reduce(
+    (a, r) => a + Number(r.productividad || 0),
+    0
+  ) / data.length;
 
+setProductividadGeneral(
+  productividadPromedio.toFixed(1)
+);
+
+setActividadGeneral(
+  data.length.toString()
+);
     const operadores = {};
 
     data.forEach(r => {
