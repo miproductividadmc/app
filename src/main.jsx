@@ -277,21 +277,22 @@ if (targetPromedioCalculado > 0) {
         <section>
           <h3>🔥 Insights</h3>
 
-          <div className="trend-row">
-            <span>Mejor productividad</span>
-            <b>--</b>
-          </div>
+<div className="trend-row">
+  <span>Mejor productividad</span>
+  <b>{mejorOperador}</b>
+</div>
 
-          <div className="trend-row">
-            <span>Mejor calidad</span>
-            <b>--</b>
-          </div>
+<div className="trend-row">
+  <span>Mejor calidad</span>
+  <b>{calidadGeneral}</b>
+</div>
 
-          <div className="trend-row">
-            <span>Mayor tasa de error</span>
-            <b>--</b>
-          </div>
-        </section>
+<div className="trend-row">
+  <span>Mayor tasa de error</span>
+  <b>{requiereAtencion}</b>
+</div>
+
+</section>
 
         <section>
           <h3>🚨 Alertas</h3>
