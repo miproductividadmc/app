@@ -33,14 +33,19 @@ function segundos(v){if(v==null||v==='')return null;if(typeof v==='number')retur
 function hora(v){if(v==null||v==='')return null;if(typeof v==='number')return XLSX.SSF.format('hh:mm:ss',v);return String(v).slice(0,8)}
 async function insertarLotes(tabla,filas){for(let i=0;i<filas.length;i+=250){const{error}=await supabase.from(tabla).insert(filas.slice(i,i+250));if(error)throw error}}
 function AnalisisPersonal() {
-
+const [tab, setTab] = useState('dashboard');
+  
   const [periodo, setPeriodo] = useState('mes');
   
  const [mejorOperador, setMejorOperador] = useState('--');
 const [segundoOperador, setSegundoOperador] = useState('--');
 const [requiereAtencion, setRequiereAtencion] = useState('--');
 const [mejorCancha, setMejorCancha] = useState('--');
-  
+  const rankingOperadores = [
+  mejorOperador,
+  segundoOperador,
+  requiereAtencion
+].filter(Boolean);
 const [productividadGeneral, setProductividadGeneral] = useState('--');
 const [cumplimientoGeneral, setCumplimientoGeneral] = useState('--');
 const [calidadGeneral, setCalidadGeneral] = useState('--');
@@ -264,15 +269,77 @@ if (targetPromedioCalculado > 0) {
 </div>
 
       <div className="analysis-nav">
-        <button className="sel">Dashboard</button>
-        <button>Rankings</button>
-        <button>ADN Operativo</button>
-        <button>Calidad</button>
-        <button>Canchas</button>
-        <button>Alertas</button>
-      </div>
 
-      <div className="executive-grid">
+  <button
+    className={tab === 'dashboard' ? 'sel' : ''}
+    onClick={() => setTab('dashboard')}
+  >
+    Dashboard
+  </button>
+
+  <button
+    className={tab === 'rankings' ? 'sel' : ''}
+    onClick={() => setTab('rankings')}
+  >
+    Rankings
+  </button>
+
+  <button
+    className={tab === 'adn' ? 'sel' : ''}
+    onClick={() => setTab('adn')}
+  >
+    ADN Operativo
+  </button>
+
+  <button
+    className={tab === 'calidad' ? 'sel' : ''}
+    onClick={() => setTab('calidad')}
+  >
+    Calidad
+  </button>
+
+  <button
+    className={tab === 'canchas' ? 'sel' : ''}
+    onClick={() => setTab('canchas')}
+  >
+    Canchas
+  </button>
+
+  <button
+    className={tab === 'alertas' ? 'sel' : ''}
+    onClick={() => setTab('alertas')}
+  >
+    Alertas
+  </button>
+
+</div>
+{tab === 'rankings' && (
+  <section className="panel">
+    <h2>🏆 Rankings</h2>
+
+    <div className="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Operador</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {rankingOperadores.map((op, i) => (
+            <tr key={i}>
+              <td>{i + 1}</td>
+              <td>{op}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+)}
+      {tab === 'dashboard' && (
+<div className="executive-grid">
 
         <section>
           <h3>🔥 Insights</h3>
@@ -314,7 +381,7 @@ if (targetPromedioCalculado > 0) {
         </section>
 
       </div>
-
+)}
     </section>
   );
 }
