@@ -69,6 +69,8 @@ setProductividadGeneral(
 setActividadGeneral(
   data.length.toString()
 );
+    
+    setCumplimientoGeneral('100%');
     setCalidadGeneral('0%');
     const targetPromedioCalculado =
   data.reduce(
