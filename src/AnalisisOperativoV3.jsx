@@ -155,7 +155,14 @@ export default function AnalisisOperativoV3() {
       if (!map.has(c)) map.set(c, []);
       map.get(c).push(r);
     });
-    return [...map.entries()].map(([cancha, rows]) => ({ cancha, productividad: rows.reduce((s, r) => s + n(r.productividad), 0) / rows.length, volumen: rows.reduce((s, r) => s + activity(r), 0 })).sort((a, b) => b.productividad - a.productividad);
+    return [...map.entries()]
+      .map(([cancha, rows]) => ({
+        cancha,
+        productividad:
+          rows.reduce((s, r) => s + n(r.productividad), 0) / rows.length,
+        volumen: rows.reduce((s, r) => s + activity(r), 0)
+      }))
+      .sort((a, b) => b.productividad - a.productividad);
   }, [ficha]);
 
   const erroresFicha = useMemo(() => {
