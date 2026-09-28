@@ -175,7 +175,7 @@ setActividadGeneral(
 
         <div>
           <span>📈 PRODUCTIVIDAD</span>
-          <b>--</b>
+         <b>{productividadGeneral}</b>
           <small>Productividad general</small>
         </div>
 
@@ -193,7 +193,7 @@ setActividadGeneral(
 
         <div>
           <span>📦 ACTIVIDAD</span>
-          <b>--</b>
+          <b>{actividadGeneral}</b>
           <small>Packs y pallets</small>
         </div>
 
