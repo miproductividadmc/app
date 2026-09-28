@@ -40,12 +40,89 @@ function AnalisisPersonal() {
 const [segundoOperador, setSegundoOperador] = useState('--');
 const [requiereAtencion, setRequiereAtencion] = useState('--');
 const [mejorCancha, setMejorCancha] = useState('--');
-  useEffect(() => {
+ useEffect(() => {
 
-  setMejorOperador('PAZ, Facundo');
-  setSegundoOperador('GALVAN, Luis');
-  setRequiereAtencion('ORTIZ, Matias');
-  setMejorCancha('C5');
+  async function cargarRanking() {
+
+    const { data, error } = await supabase
+      .from('picking')
+      .select('cancha, productividad, datos_originales');
+
+    if (error || !data?.length) return;
+
+    const operadores = {};
+
+    data.forEach(r => {
+
+      const nombre =
+        r.datos_originales?.operador || 'SIN NOMBRE';
+
+      if (!operadores[nombre]) {
+        operadores[nombre] = {
+          nombre,
+          total: 0,
+          cantidad: 0
+        };
+      }
+
+      operadores[nombre].total += Number(r.productividad || 0);
+      operadores[nombre].cantidad += 1;
+
+    });
+
+    const ranking = Object.values(operadores)
+      .map(o => ({
+        ...o,
+        promedio: o.total / o.cantidad
+      }))
+      .sort((a, b) => b.promedio - a.promedio);
+
+    if (ranking[0])
+      setMejorOperador(ranking[0].nombre);
+
+    if (ranking[1])
+      setSegundoOperador(ranking[1].nombre);
+
+    if (ranking[ranking.length - 1])
+      setRequiereAtencion(
+        ranking[ranking.length - 1].nombre
+      );
+
+    const canchas = {};
+
+    data.forEach(r => {
+
+      const cancha = r.cancha || 'SIN CANCHA';
+
+      if (!canchas[cancha]) {
+        canchas[cancha] = {
+          cancha,
+          total: 0,
+          cantidad: 0
+        };
+      }
+
+      canchas[cancha].total +=
+        Number(r.productividad || 0);
+
+      canchas[cancha].cantidad += 1;
+
+    });
+
+    const rankingCanchas =
+      Object.values(canchas)
+        .map(c => ({
+          ...c,
+          promedio: c.total / c.cantidad
+        }))
+        .sort((a, b) => b.promedio - a.promedio);
+
+    if (rankingCanchas[0])
+      setMejorCancha(rankingCanchas[0].cancha);
+
+  }
+
+  cargarRanking();
 
 }, []);
   return (
