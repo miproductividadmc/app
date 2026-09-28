@@ -35,10 +35,12 @@ async function insertarLotes(tabla,filas){for(let i=0;i<filas.length;i+=250){con
 function AnalisisPersonal() {
 
   const [periodo, setPeriodo] = useState('mes');
-  const mejorOperador = 'PAZ, Facundo';
-const segundoOperador = 'GALVAN, Luis';
-const requiereAtencion = 'ORTIZ, Matias';
-const mejorCancha = 'C5';
+  
+ const [mejorOperador, setMejorOperador] = useState('--');
+const [segundoOperador, setSegundoOperador] = useState('--');
+const [requiereAtencion, setRequiereAtencion] = useState('--');
+const [mejorCancha, setMejorCancha] = useState('--');
+  
   return (
     <section className="panel people-analysis">
 
