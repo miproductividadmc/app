@@ -93,33 +93,33 @@ function AnalisisPersonal() {
 
       </div>
 
-      <div className="smart-kpi-grid">
+      <div className="analysis-kpis">
 
-        <div className="smart-card">
-          <span>🏆 MEJOR OPERADOR</span>
-          <b>--</b>
-          <small>Mayor productividad</small>
-        </div>
+  <div>
+    <span>🏆 MEJOR OPERADOR</span>
+    <b>--</b>
+    <small>Mayor productividad</small>
+  </div>
 
-        <div className="smart-card">
-          <span>🥈 SEGUNDO OPERADOR</span>
-          <b>--</b>
-          <small>Segundo mejor rendimiento</small>
-        </div>
+  <div>
+    <span>🥈 SEGUNDO OPERADOR</span>
+    <b>--</b>
+    <small>Segundo mejor rendimiento</small>
+  </div>
 
-        <div className="smart-card">
-          <span>🚨 REQUIERE ATENCIÓN</span>
-          <b>--</b>
-          <small>Mayor porcentaje de error</small>
-        </div>
+  <div>
+    <span>🚨 REQUIERE ATENCIÓN</span>
+    <b>--</b>
+    <small>Mayor porcentaje de error</small>
+  </div>
 
-        <div className="smart-card">
-          <span>🎯 MEJOR CANCHA</span>
-          <b>--</b>
-          <small>Mayor rendimiento</small>
-        </div>
+  <div>
+    <span>🎯 MEJOR CANCHA</span>
+    <b>--</b>
+    <small>Mayor rendimiento</small>
+  </div>
 
-      </div>
+</div>
 
       <div className="analysis-nav">
         <button className="sel">Dashboard</button>
