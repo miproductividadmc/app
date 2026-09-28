@@ -69,6 +69,7 @@ setProductividadGeneral(
 setActividadGeneral(
   data.length.toString()
 );
+    setCalidadGeneral('0%');
     const targetPromedioCalculado =
   data.reduce(
     (a, r) => a + Number(r.target || 0),
@@ -209,7 +210,7 @@ if (targetPromedioCalculado > 0) {
 
         <div>
           <span>✅ CALIDAD</span>
-          <b>--%</b>
+          <b>{calidadGeneral}</b>
           <small>Error % general</small>
         </div>
 
