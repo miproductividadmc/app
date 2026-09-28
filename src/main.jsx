@@ -45,6 +45,8 @@ const [productividadGeneral, setProductividadGeneral] = useState('--');
 const [cumplimientoGeneral, setCumplimientoGeneral] = useState('--');
 const [calidadGeneral, setCalidadGeneral] = useState('--');
 const [actividadGeneral, setActividadGeneral] = useState('--');
+  
+  const [targetPromedio, setTargetPromedio] = useState(0);
   useEffect(() => {
 
   async function cargarRanking() {
