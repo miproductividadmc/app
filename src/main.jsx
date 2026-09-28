@@ -69,6 +69,26 @@ setProductividadGeneral(
 setActividadGeneral(
   data.length.toString()
 );
+    const targetPromedioCalculado =
+  data.reduce(
+    (a, r) => a + Number(r.target || 0),
+    0
+  ) / data.length;
+
+setTargetPromedio(
+  targetPromedioCalculado
+);
+
+if (targetPromedioCalculado > 0) {
+
+  const cumplimiento =
+    (productividadPromedio /
+      targetPromedioCalculado) * 100;
+
+  setCumplimientoGeneral(
+    cumplimiento.toFixed(1) + '%'
+  );
+}
     const operadores = {};
 
     data.forEach(r => {
