@@ -170,9 +170,8 @@ function AnalisisPersonal() {
             <span>Caída de productividad</span>
             <b>--</b>
           </div>
-        </section>
-
-      </div>
+       
+        </div>
 
     </section>
   );
