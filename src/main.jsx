@@ -299,17 +299,17 @@ if (targetPromedioCalculado > 0) {
 
           <div className="trend-row">
             <span>Error superior a 1%</span>
-            <b>--</b>
+<b>{calidadGeneral}</b>
           </div>
 
           <div className="trend-row">
             <span>Debajo del target</span>
-            <b>--</b>
+<b>{cumplimientoGeneral}</b>
           </div>
 
           <div className="trend-row">
             <span>Caída de productividad</span>
-            <b>--</b>
+<b>{requiereAtencion}</b>
           </div>
         </section>
 
