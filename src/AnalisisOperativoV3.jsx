@@ -2,1537 +2,238 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 
 const MIN_DIAS = 10;
-
-const numero = valor => {
-  const n = Number(valor);
-  return Number.isFinite(n) ? n : 0;
+const TARGET_GENERAL = { TODOS: 362, TARDE: 398, NOCHE: 354 };
+const TARGET_CANCHA = {
+  TARDE: { C1: 461, C2: 258, C3: 258, C4: 409, C5: 488 },
+  NOCHE: { C1: 372, C2: 212, C3: 224, C4: 328, C5: 461 }
 };
 
-const texto = valor => String(valor ?? '').trim();
+const n = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+const txt = value => String(value ?? '').trim();
+const norm = value => txt(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, ' ').trim().toUpperCase();
+const fmt = value => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(n(value));
+const pct = value => `${n(value).toFixed(1)}%`;
+const iso = value => txt(value).slice(0, 10);
+const fechaAR = value => { const [y,m,d] = iso(value).split('-'); return y && m && d ? `${d}/${m}/${y}` : txt(value); };
 
-const normalizar = valor =>
-  texto(valor)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9]+/g, ' ')
-    .trim()
-    .toUpperCase();
-
-const formatoNumero = valor =>
-  new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(numero(valor));
-
-const formatoPorcentaje = valor => `${numero(valor).toFixed(1)}%`;
-
-const fechaISO = valor => {
-  if (!valor) return '';
-  const base = texto(valor).slice(0, 10);
-  const fecha = new Date(`${base}T00:00:00`);
-  return Number.isNaN(fecha.getTime()) ? base : fecha.toISOString().slice(0, 10);
+const canonTurno = value => {
+  const t = norm(value);
+  if (t.includes('NOCHE') || t === 'TN' || t === 'N') return 'NOCHE';
+  if (t.includes('TARDE') || t === 'TT' || t === 'T') return 'TARDE';
+  return t || 'SIN TURNO';
 };
-
-const fechaAR = valor => {
-  const [anio, mes, dia] = fechaISO(valor).split('-');
-  return anio && mes && dia ? `${dia}/${mes}/${anio}` : texto(valor);
+const nombreTurno = value => canonTurno(value) === 'NOCHE' ? 'Noche' : canonTurno(value) === 'TARDE' ? 'Tarde' : txt(value);
+const operatorKey = row => txt(row.empleado_id || row.legajo || row.datos_originales?.operador || 'SIN OPERADOR');
+const dias = rows => new Set(rows.map(r => iso(r.fecha)).filter(Boolean)).size;
+const paletas = rows => rows.reduce((s,r) => s + n(r.pallets), 0);
+const bultos = rows => rows.reduce((s,r) => s + n(r.packs), 0);
+const productividad = rows => {
+  if (!rows.length) return 0;
+  const packs = bultos(rows);
+  const segundos = rows.reduce((s,r) => s + n(r.duracion_segundos), 0);
+  return packs > 0 && segundos > 0 ? packs / (segundos / 3600) : rows.reduce((s,r) => s + n(r.productividad), 0) / rows.length;
 };
-
-const turnoCanonico = valor => {
-  const n = normalizar(valor);
-  if (n.includes('NOCHE') || n === 'TN' || n === 'N') return 'NOCHE';
-  if (n.includes('TARDE') || n === 'TT' || n === 'T') return 'TARDE';
-  if (n.includes('MANANA') || n === 'TM' || n === 'M') return 'MANANA';
-  return n || 'SIN TURNO';
+const targetFila = row => {
+  const cargado = n(row.target);
+  if (cargado > 0) return cargado;
+  return TARGET_CANCHA[canonTurno(row.turno)]?.[txt(row.cancha).toUpperCase()] || 0;
 };
-
-const nombreTurno = valor => {
-  const turno = turnoCanonico(valor);
-  if (turno === 'NOCHE') return 'Noche';
-  if (turno === 'TARDE') return 'Tarde';
-  if (turno === 'MANANA') return 'Mañana';
-  return turno === 'SIN TURNO' ? 'Sin turno' : texto(valor);
+const cumplimientoFilas = rows => {
+  if (!rows.length) return 0;
+  const valores = rows.map(r => ({ prod: n(r.productividad), target: targetFila(r) })).filter(x => x.target > 0);
+  return valores.length ? valores.reduce((s,x) => s + (x.prod / x.target) * 100, 0) / valores.length : 0;
 };
-
-const esSinNovedad = fila => {
-  const motivo = normalizar(fila.motivo || fila.descripcion || fila.comentario);
-  const cantidad = numero(
-    fila.total_errores ?? fila.cantidad ?? fila.errores ?? fila.total ?? 0
-  );
-  return (
-    cantidad <= 0 ||
-    motivo === 'OK' ||
-    motivo.includes('SIN NOVEDAD') ||
-    motivo.includes('SIN ERROR') ||
-    motivo.includes('NO APLICA')
-  );
+const noEsError = row => {
+  const motivo = norm(row.motivo || row.descripcion || row.comentario);
+  const cantidad = n(row.total_errores ?? row.cantidad ?? row.errores ?? 0);
+  return cantidad <= 0 || motivo === 'OK' || motivo.includes('SIN NOVEDAD') || motivo.includes('SIN ERROR');
 };
+const errorCantidad = row => row.__origen === 'VOICE' ? n(row.total_errores) : (n(row.cantidad) || 1);
+const paletaErrorKey = row => txt(row.numero_paleta || row.paleta || `${row.__origen}-${row.id || ''}-${row.empleado_id || ''}-${row.fecha || ''}`);
 
-const claveOperador = fila =>
-  texto(fila.empleado_id || fila.legajo || fila.datos_originales?.operador || 'SIN OPERADOR');
-
-const nombreOperador = (fila, empleadosPorId) => {
-  const empleado = empleadosPorId.get(texto(fila.empleado_id));
-  return texto(
-    empleado?.apellido_nombre ||
-      fila.datos_originales?.operador ||
-      fila.operador ||
-      'SIN NOMBRE'
-  );
-};
-
-const diasUnicos = filas =>
-  new Set(filas.map(fila => fechaISO(fila.fecha)).filter(Boolean)).size;
-
-const sumaPaletas = filas => filas.reduce((total, fila) => total + numero(fila.pallets), 0);
-const sumaPacks = filas => filas.reduce((total, fila) => total + numero(fila.packs), 0);
-const sumaSegundos = filas =>
-  filas.reduce((total, fila) => total + numero(fila.duracion_segundos), 0);
-
-const productividadPonderada = filas => {
-  if (!filas.length) return 0;
-  const packs = sumaPacks(filas);
-  const segundos = sumaSegundos(filas);
-  if (packs > 0 && segundos > 0) return packs / (segundos / 3600);
-  return filas.reduce((total, fila) => total + numero(fila.productividad), 0) / filas.length;
-};
-
-const targetPonderado = filas => {
-  if (!filas.length) return 0;
-  const segundos = sumaSegundos(filas);
-  if (segundos > 0) {
-    return (
-      filas.reduce(
-        (total, fila) =>
-          total + numero(fila.target) * numero(fila.duracion_segundos),
-        0
-      ) / segundos
-    );
-  }
-  return filas.reduce((total, fila) => total + numero(fila.target), 0) / filas.length;
-};
-
-const rangoAnterior = ({ desde, hasta }) => {
-  const inicio = new Date(desde);
-  const fin = new Date(hasta);
-  const duracion = fin.getTime() - inicio.getTime();
-  const finAnterior = new Date(inicio.getTime() - 86400000);
-  const inicioAnterior = new Date(finAnterior.getTime() - duracion);
-  return { desde: inicioAnterior, hasta: finAnterior };
-};
-
-const calcularRango = (fechas, periodo, mes, anio, fechaReferencia) => {
-  if (!fechas.length) return null;
-  const ultima = new Date(
-    Math.max(...fechas.map(valor => new Date(`${fechaISO(valor)}T00:00:00`).getTime()))
-  );
-  const referencia = fechaReferencia
-    ? new Date(`${fechaReferencia}T00:00:00`)
-    : ultima;
-  const year = anio ? Number(anio) : referencia.getFullYear();
-  const month = mes ? Number(mes) - 1 : referencia.getMonth();
-  let desde;
-  let hasta;
-
-  if (periodo === 'dia') {
-    desde = new Date(referencia);
-    hasta = new Date(referencia);
-  } else if (periodo === 'semana') {
-    hasta = new Date(referencia);
-    desde = new Date(referencia);
-    desde.setDate(desde.getDate() - 6);
-  } else if (periodo === 'quincena') {
-    hasta = new Date(referencia);
-    desde = new Date(referencia);
-    desde.setDate(desde.getDate() - 14);
-  } else if (periodo === 'anio') {
-    desde = new Date(year, 0, 1);
-    hasta = new Date(year, 11, 31);
-  } else {
-    desde = new Date(year, month, 1);
-    hasta = new Date(year, month + 1, 0);
-  }
-
-  desde.setHours(0, 0, 0, 0);
-  hasta.setHours(23, 59, 59, 999);
-  return { desde, hasta };
-};
-
-const dentroDelRango = (fila, rango) => {
-  if (!rango) return false;
-  const fecha = new Date(`${fechaISO(fila.fecha)}T00:00:00`);
-  return !Number.isNaN(fecha.getTime()) && fecha >= rango.desde && fecha <= rango.hasta;
-};
-
-const identificarOrigen = fila => (fila.__origen === 'VOICE' ? 'Voice' : 'Gatera');
-
-const identificadorPaletaError = fila =>
-  texto(
-    fila.numero_paleta ||
-      fila.paleta ||
-      `${fila.__origen}-${fila.id || ''}-${fila.empleado_id || ''}-${fila.fecha || ''}`
-  );
-
-const cantidadError = fila => {
-  if (fila.__origen === 'VOICE') return numero(fila.total_errores);
-  return 1;
-};
-
-const cantidadImpactada = fila => {
-  if (fila.__origen === 'VOICE') return numero(fila.total_errores);
-  return numero(fila.cantidad) || 1;
-};
-
-const resumenErrores = filas => {
-  const reales = filas.filter(fila => !esSinNovedad(fila));
-  const voice = reales.filter(fila => fila.__origen === 'VOICE');
-  const gatera = reales.filter(fila => fila.__origen === 'GATERA');
-  const paletasConError = new Set(reales.map(identificadorPaletaError)).size;
-  return {
-    filas: reales,
-    eventos: reales.length,
-    paletasConError,
-    erroresVoice: voice.reduce((total, fila) => total + cantidadError(fila), 0),
-    erroresGatera: gatera.length,
-    cantidadImpactada: reales.reduce((total, fila) => total + cantidadImpactada(fila), 0)
-  };
-};
-
-const resumenActividad = (filasPicking, filasErrores) => {
-  const productividad = productividadPonderada(filasPicking);
-  const target = targetPonderado(filasPicking);
-  const cumplimiento = target > 0 ? (productividad / target) * 100 : 0;
-  const paletas = sumaPaletas(filasPicking);
-  const packs = sumaPacks(filasPicking);
-  const dias = diasUnicos(filasPicking);
-  const errores = resumenErrores(filasErrores);
-  const verificadasVoice = new Set(
-    filasErrores
-      .filter(fila => fila.__origen === 'VOICE')
-      .map(fila => texto(fila.numero_paleta || `${fila.id}-${fila.fecha}`))
-  ).size;
-  const tasaControl = paletas > 0 ? (verificadasVoice / paletas) * 100 : 0;
-  const tasaError = paletas > 0 ? (errores.paletasConError / paletas) * 100 : 0;
-  const calidad = paletas > 0 ? Math.max(0, 100 - tasaError) : null;
-  return {
-    productividad,
-    target,
-    cumplimiento,
-    paletas,
-    packs,
-    dias,
-    verificadasVoice,
-    tasaControl,
-    tasaError,
-    calidad,
-    ...errores
-  };
-};
-
-const puntosCalidad = tasaError => {
-  if (tasaError <= 0) return 40;
-  if (tasaError <= 1) return 38;
-  if (tasaError <= 2) return 32;
-  if (tasaError <= 3) return 22;
-  if (tasaError <= 4) return 10;
-  return 0;
-};
-
-function Tarjeta({ titulo, valor, detalle, detalle2, onClick }) {
-  return (
-    <div onClick={onClick} style={onClick ? { cursor: 'pointer' } : undefined}>
-      <span>{titulo}</span>
-      <b>{valor}</b>
-      <small>{detalle}</small>
-      {detalle2 && <small>{detalle2}</small>}
-    </div>
-  );
+function resumenErrores(rows) {
+  const validos = rows.filter(r => !noEsError(r));
+  const voice = validos.filter(r => r.__origen === 'VOICE').reduce((s,r) => s + errorCantidad(r), 0);
+  const gatera = validos.filter(r => r.__origen === 'GATERA').reduce((s,r) => s + errorCantidad(r), 0);
+  return { validos, voice, gatera, total: voice + gatera, paletasConError: new Set(validos.map(paletaErrorKey)).size };
 }
 
-function SinDatos({ texto = 'Sin datos para el período seleccionado.' }) {
-  return <div className="notice">{texto}</div>;
+function resumen(rows, errorRows, targetGeneral = 0) {
+  const p = paletas(rows);
+  const prod = productividad(rows);
+  const target = targetGeneral || (rows.length ? rows.reduce((s,r) => s + targetFila(r), 0) / rows.length : 0);
+  const cum = target > 0 ? prod / target * 100 : cumplimientoFilas(rows);
+  const err = resumenErrores(errorRows);
+  const tasaError = p > 0 ? err.total / p * 100 : 0;
+  const calidad = p > 0 ? Math.max(0, 100 - tasaError) : null;
+  const verificadas = new Set(errorRows.filter(r => r.__origen === 'VOICE').map(r => txt(r.numero_paleta || r.id))).size;
+  return { productividad: prod, target, cumplimiento: cum, paletas: p, bultos: bultos(rows), dias: dias(rows), tasaError, calidad, verificadas, tasaControl: p > 0 ? verificadas / p * 100 : 0, ...err };
 }
+
+const Stat = ({ title, value, detail, detail2 }) => <div><span>{title}</span><b>{value}</b><small>{detail}</small>{detail2 && <small>{detail2}</small>}</div>;
+const NoData = ({ children = 'Sin datos para el período seleccionado.' }) => <div className="notice">{children}</div>;
 
 export default function AnalisisOperativoV3() {
-  const [tab, setTab] = useState('dashboard');
-  const [periodo, setPeriodo] = useState('mes');
-  const [mes, setMes] = useState('');
-  const [anio, setAnio] = useState('');
-  const [turno, setTurno] = useState('');
-  const [fechaReferencia, setFechaReferencia] = useState('');
-  const [rankingTurno, setRankingTurno] = useState('TARDE');
-  const [busqueda, setBusqueda] = useState('');
-  const [seleccionado, setSeleccionado] = useState('');
-  const [pregunta, setPregunta] = useState('');
-  const [respuesta, setRespuesta] = useState(null);
-  const [picking, setPicking] = useState([]);
-  const [errores, setErrores] = useState([]);
-  const [empleados, setEmpleados] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [mensaje, setMensaje] = useState('');
+  const [tab,setTab] = useState('dashboard');
+  const [periodo,setPeriodo] = useState('mes');
+  const [year,setYear] = useState('2026');
+  const [month,setMonth] = useState('1');
+  const [turno,setTurno] = useState('');
+  const [fecha,setFecha] = useState('');
+  const [rankingTurno,setRankingTurno] = useState('TARDE');
+  const [search,setSearch] = useState('');
+  const [selected,setSelected] = useState('');
+  const [assistant,setAssistant] = useState(null);
+  const [picking,setPicking] = useState([]);
+  const [errors,setErrors] = useState([]);
+  const [employees,setEmployees] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [message,setMessage] = useState('');
+  const [showExcluded,setShowExcluded] = useState(false);
+  const [returnToRanking,setReturnToRanking] = useState(false);
 
   useEffect(() => {
-    async function cargarDatos() {
-      setCargando(true);
-      setMensaje('');
-      const [p, g, v, e] = await Promise.all([
-        supabase.from('picking').select('*'),
-        supabase.from('errores_gatera').select('*'),
-        supabase.from('errores_voice').select('*'),
-        supabase.from('empleados').select('*')
+    (async () => {
+      setLoading(true);
+      const [p,g,v,e] = await Promise.all([
+        supabase.from('picking').select('*'), supabase.from('errores_gatera').select('*'),
+        supabase.from('errores_voice').select('*'), supabase.from('empleados').select('*')
       ]);
-      const error = p.error || g.error || v.error || e.error;
-      if (error) setMensaje(error.message || 'No fue posible cargar todos los datos.');
+      const err = p.error || g.error || v.error || e.error;
+      if (err) setMessage(err.message || 'No se pudieron cargar todos los datos.');
       setPicking(p.data || []);
-      setErrores([
-        ...(g.data || []).map(fila => ({ ...fila, __origen: 'GATERA' })),
-        ...(v.data || []).map(fila => ({ ...fila, __origen: 'VOICE' }))
-      ]);
-      setEmpleados(e.data || []);
-      setCargando(false);
-    }
-    cargarDatos();
-  }, []);
+      setErrors([...(g.data || []).map(r => ({...r,__origen:'GATERA'})), ...(v.data || []).map(r => ({...r,__origen:'VOICE'}))]);
+      setEmployees(e.data || []);
+      setLoading(false);
+    })();
+  },[]);
 
-  const empleadosPorId = useMemo(
-    () => new Map(empleados.map(empleado => [texto(empleado.id), empleado])),
-    [empleados]
-  );
+  useEffect(() => { setAssistant(null); }, [periodo,year,month,turno,fecha]);
 
-  const fechasDisponibles = useMemo(
-    () => picking.map(fila => fila.fecha).filter(Boolean),
-    [picking]
-  );
-
-  const ultimaFecha = useMemo(() => {
-    if (!fechasDisponibles.length) return '';
-    return fechaISO(
-      fechasDisponibles.sort().slice(-1)[0]
-    );
-  }, [fechasDisponibles]);
-
-  useEffect(() => {
-    if (!ultimaFecha) return;
-    const fecha = new Date(`${ultimaFecha}T00:00:00`);
-    if (!mes) setMes(String(fecha.getMonth() + 1));
-    if (!anio) setAnio(String(fecha.getFullYear()));
-    if (!fechaReferencia) setFechaReferencia(ultimaFecha);
-  }, [ultimaFecha, mes, anio, fechaReferencia]);
-
-  const rango = useMemo(
-    () => calcularRango(fechasDisponibles, periodo, mes, anio, fechaReferencia),
-    [fechasDisponibles, periodo, mes, anio, fechaReferencia]
-  );
-
-  const rangoPrevio = useMemo(() => (rango ? rangoAnterior(rango) : null), [rango]);
-
-  const pickingPeriodo = useMemo(
-    () => picking.filter(fila => dentroDelRango(fila, rango)),
-    [picking, rango]
-  );
-
-  const erroresPeriodo = useMemo(
-    () => errores.filter(fila => dentroDelRango(fila, rango)),
-    [errores, rango]
-  );
-
-  const pickingPrevio = useMemo(
-    () => picking.filter(fila => dentroDelRango(fila, rangoPrevio)),
-    [picking, rangoPrevio]
-  );
-
-  const erroresPrevios = useMemo(
-    () => errores.filter(fila => dentroDelRango(fila, rangoPrevio)),
-    [errores, rangoPrevio]
-  );
-
-  const filtrarTurno = (filas, valorTurno) =>
-    !valorTurno
-      ? filas
-      : filas.filter(fila => turnoCanonico(fila.turno) === valorTurno);
-
-  const pickingFiltrado = useMemo(
-    () => filtrarTurno(pickingPeriodo, turno),
-    [pickingPeriodo, turno]
-  );
-
-  const erroresFiltrados = useMemo(
-    () => filtrarTurno(erroresPeriodo, turno),
-    [erroresPeriodo, turno]
-  );
-
-  const resumenGeneral = useMemo(
-    () => resumenActividad(pickingFiltrado, erroresFiltrados),
-    [pickingFiltrado, erroresFiltrados]
-  );
-
-  const resumenTarde = useMemo(
-    () =>
-      resumenActividad(
-        filtrarTurno(pickingPeriodo, 'TARDE'),
-        filtrarTurno(erroresPeriodo, 'TARDE')
-      ),
-    [pickingPeriodo, erroresPeriodo]
-  );
-
-  const resumenNoche = useMemo(
-    () =>
-      resumenActividad(
-        filtrarTurno(pickingPeriodo, 'NOCHE'),
-        filtrarTurno(erroresPeriodo, 'NOCHE')
-      ),
-    [pickingPeriodo, erroresPeriodo]
-  );
-
-  const resumenGeneralPrevio = useMemo(
-    () => resumenActividad(pickingPrevio, erroresPrevios),
-    [pickingPrevio, erroresPrevios]
-  );
-
-  const construirOperadores = useMemo(() => {
-    const mapa = new Map();
-    pickingPeriodo.forEach(fila => {
-      const key = claveOperador(fila);
-      if (!mapa.has(key)) {
-        mapa.set(key, {
-          key,
-          empleadoId: texto(fila.empleado_id),
-          nombre: nombreOperador(fila, empleadosPorId),
-          filas: [],
-          errores: []
-        });
-      }
-      mapa.get(key).filas.push(fila);
-    });
-    erroresPeriodo.forEach(fila => {
-      const item = mapa.get(texto(fila.empleado_id));
-      if (item && !esSinNovedad(fila)) item.errores.push(fila);
-    });
-    return [...mapa.values()];
-  }, [pickingPeriodo, erroresPeriodo, empleadosPorId]);
-
-  const agregarMetricasOperador = (item, turnoFiltro = '') => {
-    const filas = filtrarTurno(item.filas, turnoFiltro);
-    const erroresItem = filtrarTurno(item.errores, turnoFiltro);
-    const resumen = resumenActividad(filas, erroresItem);
-    const empleado = empleadosPorId.get(item.empleadoId);
-    const canchas = [...new Set(filas.map(fila => texto(fila.cancha)).filter(Boolean))];
-    const turnos = [...new Set(filas.map(fila => turnoCanonico(fila.turno)).filter(Boolean))];
-    return {
-      ...item,
-      ...resumen,
-      filas,
-      errores: erroresItem,
-      empleado,
-      legajo: texto(empleado?.legajo),
-      turnos,
-      canchas,
-      elegible: resumen.dias >= MIN_DIAS
-    };
+  const empMap = useMemo(() => new Map(employees.map(e => [txt(e.id),e])),[employees]);
+  const inRange = row => {
+    const f = iso(row.fecha);
+    if (!f) return false;
+    if (periodo === 'anio') return f.startsWith(`${year}-`);
+    if (periodo === 'mes') return f.startsWith(`${year}-${String(month).padStart(2,'0')}-`);
+    if (periodo === 'dia') return f === fecha;
+    if (!fecha) return false;
+    const end = new Date(`${fecha}T00:00:00`); const start = new Date(end);
+    start.setDate(start.getDate() - (periodo === 'semana' ? 6 : 14));
+    const d = new Date(`${f}T00:00:00`); return d >= start && d <= end;
   };
+  const byTurno = (rows,t = turno) => !t ? rows : rows.filter(r => canonTurno(r.turno) === t);
+  const pPeriod = useMemo(() => picking.filter(inRange),[picking,periodo,year,month,fecha]);
+  const ePeriod = useMemo(() => errors.filter(inRange),[errors,periodo,year,month,fecha]);
+  const pFiltered = useMemo(() => byTurno(pPeriod),[pPeriod,turno]);
+  const eFiltered = useMemo(() => byTurno(ePeriod),[ePeriod,turno]);
+  const generalTarget = turno ? TARGET_GENERAL[turno] : TARGET_GENERAL.TODOS;
+  const general = useMemo(() => resumen(pFiltered,eFiltered,generalTarget),[pFiltered,eFiltered,generalTarget]);
+  const tarde = useMemo(() => resumen(byTurno(pPeriod,'TARDE'),byTurno(ePeriod,'TARDE'),TARGET_GENERAL.TARDE),[pPeriod,ePeriod]);
+  const noche = useMemo(() => resumen(byTurno(pPeriod,'NOCHE'),byTurno(ePeriod,'NOCHE'),TARGET_GENERAL.NOCHE),[pPeriod,ePeriod]);
 
-  const operadoresGeneral = useMemo(
-    () => construirOperadores.map(item => agregarMetricasOperador(item)),
-    [construirOperadores, empleadosPorId]
-  );
+  const operatorsBase = useMemo(() => {
+    const map = new Map();
+    pPeriod.forEach(r => {
+      const key = operatorKey(r); if (!map.has(key)) map.set(key,{key,employeeId:txt(r.empleado_id),rows:[],errors:[]}); map.get(key).rows.push(r);
+    });
+    ePeriod.forEach(r => { const item = map.get(txt(r.empleado_id)); if (item && !noEsError(r)) item.errors.push(r); });
+    return [...map.values()].map(item => {
+      const emp = empMap.get(item.employeeId);
+      const data = resumen(item.rows,item.errors,0);
+      return {...item,...data,name:txt(emp?.apellido_nombre || item.rows[0]?.datos_originales?.operador || 'SIN NOMBRE'),legajo:txt(emp?.legajo),turnos:[...new Set(item.rows.map(r => canonTurno(r.turno)))]};
+    });
+  },[pPeriod,ePeriod,empMap]);
 
   const ranking = useMemo(() => {
-    const base = construirOperadores
-      .map(item => agregarMetricasOperador(item, rankingTurno))
-      .filter(item => item.elegible && item.paletas > 0);
+    const base = operatorsBase.map(op => {
+      const rows = byTurno(op.rows,rankingTurno); const errs = byTurno(op.errors,rankingTurno); const data = resumen(rows,errs,0);
+      return {...op,...data,rows,errors:errs,elegible:data.dias >= MIN_DIAS && data.paletas > 0};
+    }).filter(x => x.elegible);
+    const maxPal = Math.max(1,...base.map(x => x.paletas));
+    return base.map(x => {
+      const ability = Math.min(x.cumplimiento,120)/120*35;
+      const quality = x.tasaError <= 0 ? 40 : x.tasaError <= 1 ? 38 : x.tasaError <= 2 ? 32 : x.tasaError <= 3 ? 22 : x.tasaError <= 4 ? 10 : 0;
+      const volume = x.paletas/maxPal*25;
+      return {...x,score:ability+quality+volume,blocked:x.total>24 || x.tasaError>4};
+    }).sort((a,b) => b.score-a.score);
+  },[operatorsBase,rankingTurno]);
+  const eligibleTop = ranking.filter(x => !x.blocked);
+  const excluded = useMemo(() => operatorsBase.map(op => { const data=resumen(byTurno(op.rows,rankingTurno),byTurno(op.errors,rankingTurno),0); return {...op,...data}; }).filter(x => x.dias>0 && x.dias<MIN_DIAS),[operatorsBase,rankingTurno]);
 
-    const maxPaletas = Math.max(1, ...base.map(item => item.paletas));
-    return base
-      .map(item => {
-        const puntosCumplimiento =
-          Math.min(Math.max(item.cumplimiento, 0), 120) / 120 * 35;
-        const puntosVolumen = item.paletas / maxPaletas * 25;
-        const calidadPuntos = puntosCalidad(item.tasaError);
-        const score = puntosCumplimiento + puntosVolumen + calidadPuntos;
-        const bloqueadoComoMejor = item.paletasConError > 24 || item.tasaError > 4;
-        const estado =
-          item.tasaError > 4 || item.paletasConError > 24
-            ? 'Calidad crítica'
-            : item.tasaError > 2
-            ? 'Productivo con errores'
-            : item.cumplimiento < 100
-            ? 'Debajo del target'
-            : item.tasaError <= 1
-            ? 'Excelente'
-            : 'Buen desempeño';
-        return { ...item, score, bloqueadoComoMejor, estado };
-      })
-      .sort((a, b) => b.score - a.score);
-  }, [construirOperadores, rankingTurno, empleadosPorId]);
+  const courts = t => {
+    const map = new Map(); byTurno(pPeriod,t).forEach(r => { const c=txt(r.cancha||'SIN CANCHA').toUpperCase(); if(!map.has(c))map.set(c,[]);map.get(c).push(r); });
+    return [...map.entries()].map(([cancha,rows]) => {
+      const errs=byTurno(ePeriod,t).filter(e=>txt(e.cancha).toUpperCase()===cancha); const data=resumen(rows,errs,TARGET_CANCHA[t]?.[cancha]||0);
+      return {cancha,turno:t,operators:new Set(rows.map(operatorKey)).size,rows,errors:errs,...data};
+    }).sort((a,b)=>b.cumplimiento-a.cumplimiento);
+  };
+  const courtsTarde=useMemo(()=>courts('TARDE'),[pPeriod,ePeriod]);
+  const courtsNoche=useMemo(()=>courts('NOCHE'),[pPeriod,ePeriod]);
 
-  const mejorElegible = useMemo(
-    () => ranking.find(item => !item.bloqueadoComoMejor) || null,
-    [ranking]
-  );
+  const options = useMemo(() => { const q=norm(search); return q ? operatorsBase.filter(o=>norm(o.name).includes(q)||o.legajo.includes(search.trim())).slice(0,15) : []; },[search,operatorsBase]);
+  const ficha = operatorsBase.find(o=>o.key===selected) || (options.length===1?options[0]:null);
+  const fichaCourts = useMemo(() => {
+    if(!ficha)return[]; const map=new Map(); ficha.rows.forEach(r=>{const k=`${canonTurno(r.turno)}|${txt(r.cancha).toUpperCase()}`;if(!map.has(k))map.set(k,[]);map.get(k).push(r);});
+    return [...map.entries()].map(([k,rows])=>{const[t,c]=k.split('|');const errs=ficha.errors.filter(e=>canonTurno(e.turno)===t&&txt(e.cancha).toUpperCase()===c);return{turno:t,cancha:c,rows,errors:errs,...resumen(rows,errs,TARGET_CANCHA[t]?.[c]||0)};}).sort((a,b)=>b.paletas-a.paletas);
+  },[ficha]);
+  const fichaErrors = useMemo(() => {
+    if(!ficha)return[]; const map=new Map(); ficha.errors.forEach(e=>{const sku=txt(e.sku||e.codigo||e.material||'SIN SKU');const motivo=txt(e.motivo||'SIN MOTIVO');const k=`${sku}|${motivo}`;if(!map.has(k))map.set(k,{sku,motivo,total:0,voice:0,gatera:0,dates:new Set(),courts:new Set()});const x=map.get(k);const c=errorCantidad(e);x.total+=c;x[e.__origen==='VOICE'?'voice':'gatera']+=c;x.dates.add(iso(e.fecha));x.courts.add(txt(e.cancha));});return[...map.values()].map(x=>({...x,dates:[...x.dates].sort(),courts:[...x.courts].filter(Boolean)})).sort((a,b)=>b.total-a.total);
+  },[ficha]);
+  const dayDetails = useMemo(() => {
+    if(!ficha)return[];const map=new Map();ficha.rows.forEach(r=>{const d=iso(r.fecha);if(!map.has(d))map.set(d,[]);map.get(d).push(r);});return[...map.entries()].map(([date,rows])=>{const errs=ficha.errors.filter(e=>iso(e.fecha)===date);const main=rows.slice().sort((a,b)=>n(b.pallets)-n(a.pallets))[0];return{date,cancha:txt(main?.cancha),...resumen(rows,errs,targetFila(main||{}))};}).sort((a,b)=>a.date.localeCompare(b.date));
+  },[ficha]);
 
-  const segundoElegible = useMemo(
-    () =>
-      ranking.filter(item => !item.bloqueadoComoMejor && item.key !== mejorElegible?.key)[0] ||
-      null,
-    [ranking, mejorElegible]
-  );
-
-  const requiereAtencion = useMemo(
-    () => [...ranking].sort((a, b) => a.score - b.score)[0] || null,
-    [ranking]
-  );
-
-  const noElegibles = useMemo(
-    () =>
-      construirOperadores
-        .map(item => agregarMetricasOperador(item, rankingTurno))
-        .filter(item => item.dias > 0 && item.dias < MIN_DIAS),
-    [construirOperadores, rankingTurno, empleadosPorId]
-  );
-
-  const construirCanchas = turnoFiltro => {
-    const mapa = new Map();
-    filtrarTurno(pickingPeriodo, turnoFiltro).forEach(fila => {
-      const cancha = texto(fila.cancha || 'SIN CANCHA');
-      if (!mapa.has(cancha)) mapa.set(cancha, []);
-      mapa.get(cancha).push(fila);
-    });
-    return [...mapa.entries()]
-      .map(([cancha, filas]) => {
-        const erroresCancha = filtrarTurno(erroresPeriodo, turnoFiltro).filter(
-          error => texto(error.cancha) === cancha
-        );
-        const resumen = resumenActividad(filas, erroresCancha);
-        return {
-          cancha,
-          turno: turnoFiltro,
-          ...resumen,
-          operadores: new Set(filas.map(claveOperador)).size,
-          filas,
-          errores: erroresCancha
-        };
-      })
-      .sort((a, b) => b.cumplimiento - a.cumplimiento);
+  const assistantQuestions=[['op','¿Quién tuvo más errores?'],['turn','¿Qué turno tuvo mayor tasa de error?'],['court','¿Qué cancha necesita revisión?'],['sku','¿Qué SKU se repitió más?'],['best','¿Quién produjo más paletas con menos errores?'],['today','¿Qué ocurrió en la fecha seleccionada?'],['why','¿Dónde conviene realizar un 5 Why?'],['adf','¿Qué caso requiere un ADF?']];
+  const answer = id => {
+    if(!pFiltered.length)return{title:'Sin datos',lines:['No hay información para el período y turno seleccionados.']};
+    if(id==='op'){const x=operatorsBase.slice().sort((a,b)=>b.total-a.total)[0];return{title:'Operador con más errores',lines:x?[`${x.name}: ${x.total} errores totales.`,`Voice ${x.voice} · Gatera ${x.gatera}.`,`${fmt(x.paletas)} paletas armadas · tasa ${pct(x.tasaError)}.`]:['Sin errores reales.']};}
+    if(id==='turn'){const a=[{name:'Tarde',...tarde},{name:'Noche',...noche}].filter(x=>x.paletas);const x=a.sort((a,b)=>b.tasaError-a.tasaError)[0];return{title:'Turno con mayor tasa de error',lines:x?[`${x.name}: ${pct(x.tasaError)}.`,`${x.total} errores totales sobre ${fmt(x.paletas)} paletas.`,`Target ${fmt(x.target)} · cumplimiento ${pct(x.cumplimiento)}.`]:['Información insuficiente.']};}
+    if(id==='court'){const all=[...courtsTarde,...courtsNoche];const x=all.sort((a,b)=>(b.tasaError*2+Math.max(0,100-b.cumplimiento))-(a.tasaError*2+Math.max(0,100-a.cumplimiento)))[0];if(!x)return{title:'Información insuficiente',lines:[]};const level=x.tasaError>4||x.total>24?'Crítica':x.tasaError>2||x.cumplimiento<100?'Requiere revisión':x.tasaError>1?'Seguimiento preventivo':'Sin alerta';return{title:`Cancha ${x.cancha} · Turno ${nombreTurno(x.turno)}`,lines:[`Nivel: ${level}.`,`Productividad ${fmt(x.productividad)} / Target ${fmt(x.target)} · cumplimiento ${pct(x.cumplimiento)}.`,`${fmt(x.paletas)} paletas · ${x.total} errores totales · tasa ${pct(x.tasaError)}.`]};}
+    if(id==='sku'){const all=errors.filter(inRange).filter(e=>!noEsError(e));const map=new Map();all.forEach(e=>{const sku=txt(e.sku||e.codigo||e.material||'SIN SKU');map.set(sku,(map.get(sku)||0)+errorCantidad(e));});const x=[...map.entries()].sort((a,b)=>b[1]-a[1])[0];return{title:'SKU más repetido',lines:x?[`SKU ${x[0]}: ${x[1]} errores totales.`]:['No hay SKU con errores reales.']};}
+    if(id==='best'){const x=operatorsBase.filter(o=>o.dias>=MIN_DIAS).sort((a,b)=>(b.paletas*(1-b.tasaError/100))-(a.paletas*(1-a.tasaError/100)))[0];return{title:'Más paletas con menos errores',lines:x?[`${x.name}: ${fmt(x.paletas)} paletas.`,`${x.total} errores totales · tasa ${pct(x.tasaError)}.`,`Productividad ${fmt(x.productividad)}.`]:['No hay operadores elegibles.']};}
+    if(id==='today'){if(!fecha)return{title:'Elegí una fecha',lines:['La pregunta diaria usa la fecha seleccionada.']};const rows=picking.filter(r=>iso(r.fecha)===fecha);const errs=errors.filter(r=>iso(r.fecha)===fecha);const x=resumen(byTurno(rows),byTurno(errs),turno?TARGET_GENERAL[turno]:TARGET_GENERAL.TODOS);return{title:`Resumen del ${fechaAR(fecha)}`,lines:rows.length?[`${fmt(x.paletas)} paletas · ${fmt(x.bultos)} bultos.`,`Productividad ${fmt(x.productividad)} / Target ${fmt(x.target)} · cumplimiento ${pct(x.cumplimiento)}.`,`${x.total} errores totales · calidad de armado ${pct(x.calidad)}.`]:['Sin datos para esa fecha y turno.']};}
+    if(id==='why'){const skuAns=answer('sku');const opAns=answer('op');return{title:'Caso sugerido para 5 Why',lines:[...skuAns.lines,...opAns.lines,'1. ¿Por qué ocurrió?','2. ¿Por qué se generó esa condición?','3. ¿Por qué no fue detectado antes?','4. ¿Por qué el control no lo evitó?','5. ¿Cuál es la causa raíz?']};}
+    const x=operatorsBase.find(o=>o.total>24||o.tasaError>4);return{title:x?'Caso sugerido para ADF':'Sin caso crítico para ADF',lines:x?[`${x.name}: ${x.total} errores totales y tasa ${pct(x.tasaError)}.`,`Productividad ${fmt(x.productividad)} · cumplimiento ${pct(x.cumplimiento)}.`,'Documentar evidencia, causa, acción y seguimiento.']:['Ningún operador supera los umbrales definidos.']};
   };
 
-  const canchasTarde = useMemo(
-    () => construirCanchas('TARDE'),
-    [pickingPeriodo, erroresPeriodo]
-  );
+  const hasData=pFiltered.length>0;
+  return <section className="panel people-analysis">
+    <div className="analysis-title"><div><small>INTELIGENCIA OPERATIVA V3</small><h2>Centro de Inteligencia Operativa</h2><p>Productividad, paletas armadas, bultos, calidad de armado y análisis por turno.</p></div></div>
+    <div className="analysis-filters">
+      <label>Año<input value={year} onChange={e=>setYear(e.target.value)}/></label>
+      <label>Mes<select value={month} onChange={e=>setMonth(e.target.value)}>{Array.from({length:12},(_,i)=><option key={i+1} value={String(i+1)}>{i+1}</option>)}</select></label>
+      <label>Turno<select value={turno} onChange={e=>setTurno(e.target.value)}><option value="">Todos</option><option value="TARDE">Tarde</option><option value="NOCHE">Noche</option></select></label>
+      <label>Período<select value={periodo} onChange={e=>setPeriodo(e.target.value)}><option value="mes">Mes</option><option value="dia">Día</option><option value="semana">Semana</option><option value="quincena">Quincena</option><option value="anio">Año</option></select></label>
+      {['dia','semana','quincena'].includes(periodo)&&<label>Fecha de referencia<input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></label>}
+    </div>
+    <div className="analysis-nav">{[['dashboard','Dashboard'],['ranking','Ranking Operativo'],['operator','Ficha Operador'],['courts','Canchas'],['assistant','Asistente Operativo']].map(([id,label])=><button key={id} className={tab===id?'sel':''} onClick={()=>setTab(id)}>{label}</button>)}</div>
+    {loading&&<div className="notice">Cargando datos reales...</div>}{message&&<div className="notice">{message}</div>}
 
-  const canchasNoche = useMemo(
-    () => construirCanchas('NOCHE'),
-    [pickingPeriodo, erroresPeriodo]
-  );
+    {tab==='dashboard'&&(!hasData?<NoData/>:<><div className="analysis-kpis">
+      <Stat title="📈 PRODUCTIVIDAD PROMEDIO" value={fmt(general.productividad)} detail={`Target ${fmt(general.target)} · Cumplimiento ${pct(general.cumplimiento)}`} detail2={`${pct(Math.abs(general.cumplimiento-100))} ${general.cumplimiento>=100?'por encima':'debajo'} del objetivo`}/>
+      <Stat title="✅ CALIDAD DE ARMADO" value={general.calidad===null?'Sin datos':pct(general.calidad)} detail={`${fmt(general.paletas)} paletas · ${general.total} errores totales`} detail2={`Voice ${general.voice} · Gatera ${general.gatera} · tasa ${pct(general.tasaError)}`}/>
+      <Stat title="📦 PALETAS ARMADAS" value={fmt(general.paletas)} detail={`${general.dias} días con actividad`} detail2={`Promedio ${fmt(general.paletas/Math.max(1,general.dias))} por día`}/>
+      <Stat title="📦 BULTOS" value={fmt(general.bultos)} detail={`Promedio ${fmt(general.bultos/Math.max(1,general.dias))} por día`}/>
+    </div><div className="analysis-kpis">
+      {(!turno||turno==='TARDE')&&<Stat title="TURNO TARDE" value={tarde.paletas?fmt(tarde.productividad):'Sin datos'} detail={tarde.paletas?`Target 398 · Cumplimiento ${pct(tarde.cumplimiento)}`:'Sin actividad'} detail2={tarde.paletas?`${fmt(tarde.paletas)} paletas · ${tarde.total} errores · calidad ${pct(tarde.calidad)}`:''}/>} 
+      {(!turno||turno==='NOCHE')&&<Stat title="TURNO NOCHE" value={noche.paletas?fmt(noche.productividad):'Sin datos'} detail={noche.paletas?`Target 354 · Cumplimiento ${pct(noche.cumplimiento)}`:'Sin actividad'} detail2={noche.paletas?`${fmt(noche.paletas)} paletas · ${noche.total} errores · calidad ${pct(noche.calidad)}`:''}/>} 
+      <Stat title="🔎 CONTROL VOICE" value={pct(general.tasaControl)} detail={`${general.verificadas} paletas verificadas de ${fmt(general.paletas)} armadas`} detail2={`${general.voice} errores Voice`}/>
+    </div></>)}
 
-  const opcionesOperador = useMemo(() => {
-    const consulta = normalizar(busqueda);
-    if (!consulta) return [];
-    return operadoresGeneral
-      .filter(
-        item =>
-          normalizar(item.nombre).includes(consulta) ||
-          texto(item.legajo).includes(busqueda.trim())
-      )
-      .slice(0, 15);
-  }, [busqueda, operadoresGeneral]);
+    {tab==='ranking'&&<section><h2>🏆 Ranking Operativo</h2><div className="notice">Mínimo 10 días. Score: 35% cumplimiento contra target + 40% calidad de armado + 25% paletas armadas. Más de 24 errores o tasa mayor al 4% impide ser Mejor Operador.</div><div className="analysis-nav">{['TARDE','NOCHE'].map(t=><button key={t} className={rankingTurno===t?'sel':''} onClick={()=>setRankingTurno(t)}>Turno {nombreTurno(t)}</button>)}</div>
+      {!ranking.length?<NoData>No hay operadores con {MIN_DIAS} días o más en el Turno {nombreTurno(rankingTurno)}.</NoData>:<><div className="analysis-kpis"><Stat title="🏆 MEJOR OPERADOR" value={eligibleTop[0]?.name||'Sin elegible'} detail={eligibleTop[0]?`Score ${eligibleTop[0].score.toFixed(1)} · ${eligibleTop[0].dias} días · ${fmt(eligibleTop[0].paletas)} paletas`:'Todos presentan alertas críticas'} detail2={eligibleTop[0]?`${eligibleTop[0].total} errores totales · tasa ${pct(eligibleTop[0].tasaError)}`:''}/><Stat title="🥈 SEGUNDO OPERADOR" value={eligibleTop[1]?.name||'Sin elegible'} detail={eligibleTop[1]?`Score ${eligibleTop[1].score.toFixed(1)} · ${eligibleTop[1].dias} días · ${fmt(eligibleTop[1].paletas)} paletas`:'Sin segundo elegible'} detail2={eligibleTop[1]?`${eligibleTop[1].total} errores totales · calidad ${pct(eligibleTop[1].calidad)}`:''}/></div><div className="scroll" style={{maxHeight:560}}><table><thead style={{position:'sticky',top:0,zIndex:2}}><tr><th>#</th><th style={{position:'sticky',left:0,zIndex:3}}>Operador</th><th>Días</th><th>Paletas armadas</th><th>Productividad</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas con error</th><th>Tasa de error</th><th>Calidad de armado</th><th>Score</th><th>Ver ficha</th></tr></thead><tbody>{ranking.map((x,i)=><tr key={x.key}><td>{i+1}</td><td style={{position:'sticky',left:0,background:'white'}}>{x.name}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.productividad)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.tasaError)}</td><td>{pct(x.calidad)}</td><td>{x.score.toFixed(1)}</td><td><button onClick={()=>{setSelected(x.key);setSearch(x.name);setReturnToRanking(true);setTab('operator')}}>Ver ficha</button></td></tr>)}</tbody></table></div></>}
+      {!!excluded.length&&<div className="notice"><b>{excluded.length} operadores no elegibles por tener menos de {MIN_DIAS} días.</b><button onClick={()=>setShowExcluded(!showExcluded)}>{showExcluded?'Ocultar listado':'Ver listado'}</button>{showExcluded&&<div>{excluded.map(x=><p key={x.key}>{x.name} · {x.dias} días · {fmt(x.paletas)} paletas</p>)}</div>}</div>}
+    </section>}
 
-  const ficha = useMemo(() => {
-    if (seleccionado) return operadoresGeneral.find(item => item.key === seleccionado) || null;
-    return opcionesOperador.length === 1 ? opcionesOperador[0] : null;
-  }, [seleccionado, operadoresGeneral, opcionesOperador]);
+    {tab==='operator'&&<section>{returnToRanking&&<button onClick={()=>{setReturnToRanking(false);setTab('ranking')}}>← Volver al Ranking</button>}<h2>🔍 Ficha completa del operador</h2><input value={search} onChange={e=>{setSearch(e.target.value);setSelected('')}} placeholder="Buscar por legajo, nombre o apellido..."/>{options.length>0&&!selected&&<div className="notice">{options.map(o=><button key={o.key} onClick={()=>{setSelected(o.key);setSearch(o.name)}}>{o.name} · {o.legajo||'Sin legajo'}</button>)}</div>}
+      {!ficha?<NoData>Escribí un nombre o legajo y seleccioná un operador.</NoData>:<><div className="analysis-kpis"><Stat title="👤 OPERADOR" value={ficha.name} detail={`Legajo ${ficha.legajo||'--'}`} detail2={`${ficha.dias} días trabajados`}/><Stat title="📈 PRODUCTIVIDAD PROMEDIO" value={fmt(ficha.productividad)} detail={`Cumplimiento global ${pct(ficha.cumplimiento)}`} detail2="El target fijo de cada cancha se detalla debajo"/><Stat title="📦 PALETAS ARMADAS" value={fmt(ficha.paletas)} detail={`Promedio ${fmt(ficha.paletas/Math.max(1,ficha.dias))} paletas por día`} detail2={`${fmt(ficha.bultos)} bultos · promedio ${fmt(ficha.bultos/Math.max(1,ficha.dias))} por día`}/><Stat title="✅ CALIDAD DE ARMADO" value={pct(ficha.calidad)} detail={`${ficha.total} errores totales · ${ficha.paletasConError} paletas con error`} detail2={`Voice ${ficha.voice} · Gatera ${ficha.gatera} · tasa ${pct(ficha.tasaError)}`}/></div>
+      <div className="analysis-kpis">{dayDetails.length>0&&<><Stat title="📅 MEJOR JORNADA" value={fechaAR([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].date)} detail={`Cancha ${[...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].cancha} · Productividad ${fmt([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].productividad)}`} detail2={`${fmt([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].paletas)} paletas · ${[...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].total} errores`}/><Stat title="📉 JORNADA A REVISAR" value={fechaAR([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].date)} detail={`Cancha ${[...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].cancha} · Productividad ${fmt([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].productividad)}`} detail2={`${fmt([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].paletas)} paletas · ${[...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].total} errores`}/></>}</div>
+      <div className="executive-grid"><section><h3>🎯 Desempeño por cancha y turno</h3><div className="scroll"><table><thead><tr><th>Cancha</th><th>Turno</th><th>Días</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target fijo</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas con error</th><th>Calidad de armado</th></tr></thead><tbody>{fichaCourts.map(x=><tr key={`${x.turno}-${x.cancha}`}><td>{x.cancha}</td><td>{nombreTurno(x.turno)}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.calidad)}</td></tr>)}</tbody></table></div></section><section><h3>⚠ Errores, SKU y motivos</h3>{fichaErrors.length?fichaErrors.slice(0,15).map(x=><div className="trend-row" key={`${x.sku}-${x.motivo}`}><span>SKU {x.sku} · {x.motivo}<small>{x.dates.length===1?`${x.total} errores el mismo día: ${fechaAR(x.dates[0])}`:`${x.total} errores distribuidos en ${x.dates.length} días: ${x.dates.map(fechaAR).join(', ')}`} · Canchas {x.courts.join(', ')}</small></span><b>Total {x.total} · Voice {x.voice} / Gatera {x.gatera}</b></div>):<p>Sin errores reales en el período.</p>}</section></div></>}
+    </section>}
 
-  const datosPreviosFicha = useMemo(() => {
-    if (!ficha) return null;
-    const filas = pickingPrevio.filter(fila => claveOperador(fila) === ficha.key);
-    const errs = erroresPrevios.filter(
-      fila => texto(fila.empleado_id) === ficha.empleadoId && !esSinNovedad(fila)
-    );
-    return resumenActividad(filas, errs);
-  }, [ficha, pickingPrevio, erroresPrevios]);
+    {tab==='courts'&&<section><h2>🎯 Análisis de canchas por turno</h2>{[['TARDE',courtsTarde],['NOCHE',courtsNoche]].map(([t,list])=><section className="panel" key={t}><h3>Turno {nombreTurno(t)} · Target general {TARGET_GENERAL[t]}</h3>{!list.length?<NoData/>:<div className="scroll"><table><thead><tr><th>#</th><th>Cancha</th><th>Días</th><th>Operadores</th><th>Paletas armadas</th><th>Bultos</th><th>Productividad</th><th>Target</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas con error</th><th>Tasa error</th><th>Calidad de armado</th></tr></thead><tbody>{list.map((x,i)=><tr key={`${t}-${x.cancha}`}><td>{i+1}</td><td>{x.cancha}</td><td>{x.dias}</td><td>{x.operators}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.tasaError)}</td><td>{pct(x.calidad)}</td></tr>)}</tbody></table></div>}</section>)}</section>}
 
-  const detalleCanchasFicha = useMemo(() => {
-    if (!ficha) return [];
-    const mapa = new Map();
-    ficha.filas.forEach(fila => {
-      const key = `${turnoCanonico(fila.turno)}|${texto(fila.cancha)}`;
-      if (!mapa.has(key)) mapa.set(key, []);
-      mapa.get(key).push(fila);
-    });
-    return [...mapa.entries()]
-      .map(([key, filas]) => {
-        const [turnoItem, cancha] = key.split('|');
-        const erroresItem = ficha.errores.filter(
-          error =>
-            turnoCanonico(error.turno) === turnoItem && texto(error.cancha) === cancha
-        );
-        return {
-          cancha,
-          turno: turnoItem,
-          ...resumenActividad(filas, erroresItem),
-          filas,
-          errores: erroresItem
-        };
-      })
-      .sort((a, b) => b.paletas - a.paletas);
-  }, [ficha]);
-
-  const detalleErroresFicha = useMemo(() => {
-    if (!ficha) return [];
-    const mapa = new Map();
-    ficha.errores.forEach(error => {
-      const sku = texto(error.sku || error.codigo || error.material || 'SIN SKU');
-      const motivo = texto(error.motivo || 'SIN MOTIVO');
-      const key = `${sku}|${motivo}`;
-      if (!mapa.has(key)) {
-        mapa.set(key, {
-          sku,
-          motivo,
-          cantidad: 0,
-          voice: 0,
-          gatera: 0,
-          fechas: new Set(),
-          canchas: new Set()
-        });
-      }
-      const item = mapa.get(key);
-      item.cantidad += cantidadImpactada(error);
-      item[error.__origen === 'VOICE' ? 'voice' : 'gatera'] += cantidadImpactada(error);
-      item.fechas.add(fechaISO(error.fecha));
-      item.canchas.add(texto(error.cancha));
-    });
-    return [...mapa.values()]
-      .map(item => ({
-        ...item,
-        fechas: [...item.fechas].sort(),
-        canchas: [...item.canchas].filter(Boolean)
-      }))
-      .sort((a, b) => b.cantidad - a.cantidad);
-  }, [ficha]);
-
-  const diasFicha = useMemo(() => {
-    if (!ficha) return [];
-    const mapa = new Map();
-    ficha.filas.forEach(fila => {
-      const fecha = fechaISO(fila.fecha);
-      if (!mapa.has(fecha)) mapa.set(fecha, []);
-      mapa.get(fecha).push(fila);
-    });
-    return [...mapa.entries()]
-      .map(([fecha, filas]) => {
-        const erroresDia = ficha.errores.filter(error => fechaISO(error.fecha) === fecha);
-        return { fecha, ...resumenActividad(filas, erroresDia) };
-      })
-      .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  }, [ficha]);
-
-  const diagnosticoFicha = useMemo(() => {
-    if (!ficha) return [];
-    const resultados = [];
-    if (ficha.cumplimiento >= 100)
-      resultados.push(`Cumple el target en ${formatoPorcentaje(ficha.cumplimiento)}.`);
-    else resultados.push(`Está ${formatoPorcentaje(100 - ficha.cumplimiento)} debajo del target.`);
-    if (ficha.tasaError <= 1) resultados.push('Mantiene una tasa de error excelente.');
-    else if (ficha.tasaError > 4) resultados.push('La tasa de error es crítica y requiere intervención.');
-    const topError = detalleErroresFicha[0];
-    if (topError)
-      resultados.push(
-        `El patrón principal es SKU ${topError.sku}, motivo ${topError.motivo}, con ${topError.cantidad} repeticiones.`
-      );
-    const canchaError = [...detalleCanchasFicha].sort(
-      (a, b) => b.paletasConError - a.paletasConError
-    )[0];
-    if (canchaError?.paletasConError)
-      resultados.push(
-        `La mayor concentración de errores aparece en ${canchaError.cancha}, Turno ${nombreTurno(
-          canchaError.turno
-        )}.`
-      );
-    return resultados;
-  }, [ficha, detalleErroresFicha, detalleCanchasFicha]);
-
-  const resumenTurno = valorTurno =>
-    valorTurno === 'TARDE' ? resumenTarde : resumenNoche;
-
-  const preguntaRapida = consulta => {
-    const operadores = operadoresGeneral.filter(item => item.dias > 0);
-    const porErrores = [...operadores].sort(
-      (a, b) => b.paletasConError - a.paletasConError
-    );
-    const turnos = [
-      { nombre: 'Tarde', clave: 'TARDE', ...resumenTarde },
-      { nombre: 'Noche', clave: 'NOCHE', ...resumenNoche }
-    ].filter(item => item.paletas > 0);
-    const canchas = [...canchasTarde, ...canchasNoche];
-    const todosErrores = resumenErrores(erroresPeriodo).filas;
-    const agrupar = campo => {
-      const mapa = new Map();
-      todosErrores.forEach(error => {
-        const key = texto(campo(error) || 'SIN DATO');
-        mapa.set(key, (mapa.get(key) || 0) + cantidadImpactada(error));
-      });
-      return [...mapa.entries()].sort((a, b) => b[1] - a[1]);
-    };
-
-    if (consulta === 'operadorErrores') {
-      const item = porErrores[0];
-      return item
-        ? {
-            titulo: 'Operador con más errores',
-            resumen: `${item.nombre} registró ${item.paletasConError} paletas con error sobre ${formatoNumero(
-              item.paletas
-            )} paletas armadas.`,
-            datos: [
-              `Tasa de error: ${formatoPorcentaje(item.tasaError)}`,
-              `Voice: ${item.erroresVoice}`,
-              `Gatera: ${item.erroresGatera}`,
-              `Días trabajados: ${item.dias}`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay errores reales en el período.', datos: [] };
-    }
-
-    if (consulta === 'turnoErrores') {
-      const item = [...turnos].sort((a, b) => b.tasaError - a.tasaError)[0];
-      return item
-        ? {
-            titulo: 'Turno con mayor tasa de error',
-            resumen: `El Turno ${item.nombre} tuvo ${formatoPorcentaje(
-              item.tasaError
-            )} de error.`,
-            datos: [
-              `${formatoNumero(item.paletas)} paletas armadas`,
-              `${item.paletasConError} paletas con error`,
-              `Calidad de armado: ${formatoPorcentaje(item.calidad)}`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay datos por turno.', datos: [] };
-    }
-
-    if (consulta === 'canchaRevision') {
-      const item = [...canchas].sort((a, b) => {
-        const riesgoA = a.tasaError * 2 + Math.max(0, 100 - a.cumplimiento);
-        const riesgoB = b.tasaError * 2 + Math.max(0, 100 - b.cumplimiento);
-        return riesgoB - riesgoA;
-      })[0];
-      return item
-        ? {
-            titulo: 'Cancha que necesita revisión',
-            resumen: `${item.cancha}, Turno ${nombreTurno(item.turno)}, combina ${formatoPorcentaje(
-              item.cumplimiento
-            )} de cumplimiento y ${formatoPorcentaje(item.tasaError)} de error.`,
-            datos: [
-              `Productividad ${formatoNumero(item.productividad)} / Target ${formatoNumero(
-                item.target
-              )}`,
-              `${formatoNumero(item.paletas)} paletas armadas`,
-              `${item.paletasConError} paletas con error`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay datos de canchas.', datos: [] };
-    }
-
-    if (consulta === 'skuRepetido') {
-      const top = agrupar(error => error.sku || error.codigo || error.material)[0];
-      return top
-        ? {
-            titulo: 'SKU más repetido',
-            resumen: `El SKU ${top[0]} concentra ${top[1]} repeticiones.`,
-            datos: ['Abrí la ficha del operador o el detalle de cancha para ver fechas, motivos y origen.']
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay SKU asociados a errores reales.', datos: [] };
-    }
-
-    if (consulta === 'paletasSinErrores') {
-      const item = operadores
-        .filter(op => op.dias >= MIN_DIAS)
-        .sort((a, b) => {
-          const valorA = a.paletas * (1 - a.tasaError / 100);
-          const valorB = b.paletas * (1 - b.tasaError / 100);
-          return valorB - valorA;
-        })[0];
-      return item
-        ? {
-            titulo: 'Mayor producción con menor error',
-            resumen: `${item.nombre} armó ${formatoNumero(item.paletas)} paletas con una tasa de error de ${formatoPorcentaje(
-              item.tasaError
-            )}.`,
-            datos: [
-              `Productividad ${formatoNumero(item.productividad)}`,
-              `Target ${formatoNumero(item.target)}`,
-              `Cumplimiento ${formatoPorcentaje(item.cumplimiento)}`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay operadores elegibles.', datos: [] };
-    }
-
-    if (consulta === 'bajoProductividad') {
-      const actual = resumenGeneral.productividad;
-      const anterior = resumenGeneralPrevio.productividad;
-      const cambio = anterior ? ((actual - anterior) / anterior) * 100 : null;
-      return cambio === null
-        ? { titulo: 'Información insuficiente', resumen: 'No hay período anterior comparable.', datos: [] }
-        : {
-            titulo: 'Variación de productividad',
-            resumen: `La productividad ${cambio >= 0 ? 'mejoró' : 'bajó'} ${formatoPorcentaje(
-              Math.abs(cambio)
-            )} contra el período anterior.`,
-            datos: [
-              `Actual: ${formatoNumero(actual)}`,
-              `Anterior: ${formatoNumero(anterior)}`
-            ]
-          };
-    }
-
-    if (consulta === 'hoy') {
-      const hoy = ultimaFecha;
-      const filas = picking.filter(fila => fechaISO(fila.fecha) === hoy);
-      const errs = errores.filter(fila => fechaISO(fila.fecha) === hoy);
-      const resumen = resumenActividad(filas, errs);
-      return filas.length
-        ? {
-            titulo: `Resumen del ${fechaAR(hoy)}`,
-            resumen: `${formatoNumero(resumen.paletas)} paletas armadas con ${resumen.paletasConError} paletas con error.`,
-            datos: [
-              `Productividad: ${formatoNumero(resumen.productividad)}`,
-              `Target: ${formatoNumero(resumen.target)}`,
-              `Cumplimiento: ${formatoPorcentaje(resumen.cumplimiento)}`,
-              `Calidad: ${formatoPorcentaje(resumen.calidad)}`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay datos para la última fecha.', datos: [] };
-    }
-
-    if (consulta === 'mesAnterior') {
-      const tasaActual = resumenGeneral.tasaError;
-      const tasaAnterior = resumenGeneralPrevio.tasaError;
-      return resumenGeneralPrevio.paletas
-        ? {
-            titulo: 'Comparación contra el período anterior',
-            resumen: `La productividad pasó de ${formatoNumero(
-              resumenGeneralPrevio.productividad
-            )} a ${formatoNumero(resumenGeneral.productividad)}.`,
-            datos: [
-              `Paletas: ${formatoNumero(resumenGeneralPrevio.paletas)} → ${formatoNumero(
-                resumenGeneral.paletas
-              )}`,
-              `Tasa de error: ${formatoPorcentaje(tasaAnterior)} → ${formatoPorcentaje(
-                tasaActual
-              )}`,
-              `Calidad: ${formatoPorcentaje(resumenGeneralPrevio.calidad)} → ${formatoPorcentaje(
-                resumenGeneral.calidad
-              )}`
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay período anterior comparable.', datos: [] };
-    }
-
-    if (consulta === 'fiveWhy') {
-      const topSku = agrupar(error => error.sku || error.codigo || error.material)[0];
-      const topCancha = agrupar(error => error.cancha)[0];
-      const topOperador = porErrores[0];
-      return topSku && topCancha && topOperador
-        ? {
-            titulo: 'Caso sugerido para 5 Why',
-            resumen: `Analizar el SKU ${topSku[0]} por repetición de ${topSku[1]} errores.`,
-            datos: [
-              `Operador con más errores: ${topOperador.nombre}`,
-              `Cancha más repetida: ${topCancha[0]}`,
-              '1. ¿Por qué ocurrió el error?',
-              '2. ¿Por qué se generó esa condición?',
-              '3. ¿Por qué no fue detectada antes?',
-              '4. ¿Por qué el control no lo evitó?',
-              '5. ¿Cuál es la causa raíz?'
-            ]
-          }
-        : { titulo: 'Información insuficiente', resumen: 'No hay patrón repetitivo suficiente.', datos: [] };
-    }
-
-    const casoADF = porErrores.find(
-      item => item.paletasConError > 24 || item.tasaError > 4
-    );
-    return casoADF
-      ? {
-          titulo: 'Caso sugerido para ADF',
-          resumen: `${casoADF.nombre} supera el umbral de control.`,
-          datos: [
-            `${casoADF.paletasConError} paletas con error`,
-            `Tasa de error: ${formatoPorcentaje(casoADF.tasaError)}`,
-            `Productividad: ${formatoNumero(casoADF.productividad)}`,
-            `Cumplimiento: ${formatoPorcentaje(casoADF.cumplimiento)}`,
-            'Se recomienda documentar evento, evidencia, causa, acción y seguimiento.'
-          ]
-        }
-      : {
-          titulo: 'Sin casos críticos para ADF',
-          resumen: 'Ningún operador supera los umbrales definidos.',
-          datos: []
-        };
-  };
-
-  const preguntas = [
-    ['operadorErrores', '¿Quién tuvo más errores?'],
-    ['turnoErrores', '¿Qué turno tuvo mayor tasa de error?'],
-    ['canchaRevision', '¿Qué cancha necesita revisión?'],
-    ['skuRepetido', '¿Qué SKU se repitió más?'],
-    ['paletasSinErrores', '¿Quién produjo más paletas con menos errores?'],
-    ['bajoProductividad', '¿Dónde bajó la productividad?'],
-    ['hoy', '¿Qué ocurrió hoy?'],
-    ['mesAnterior', '¿Qué cambió contra el período anterior?'],
-    ['fiveWhy', '¿Dónde conviene realizar un 5 Why?'],
-    ['adf', '¿Qué caso requiere un ADF?']
-  ];
-
-  const hayDatos = pickingFiltrado.length > 0;
-  const variacionProductividad = resumenGeneralPrevio.productividad
-    ? ((resumenGeneral.productividad - resumenGeneralPrevio.productividad) /
-        resumenGeneralPrevio.productividad) *
-      100
-    : null;
-
-  return (
-    <section className="panel people-analysis">
-      <div className="analysis-title">
-        <div>
-          <small>INTELIGENCIA OPERATIVA V3</small>
-          <h2>Centro de Inteligencia Operativa</h2>
-          <p>
-            Productividad, paletas armadas, calidad, turnos, ranking y análisis detallado.
-          </p>
-        </div>
-      </div>
-
-      <div className="analysis-filters">
-        <label>
-          Período
-          <select value={periodo} onChange={event => setPeriodo(event.target.value)}>
-            <option value="dia">Día</option>
-            <option value="semana">Semana</option>
-            <option value="quincena">Quincena</option>
-            <option value="mes">Mes</option>
-            <option value="anio">Año</option>
-          </select>
-        </label>
-        <label>
-          Fecha de referencia
-          <input
-            type="date"
-            value={fechaReferencia}
-            onChange={event => setFechaReferencia(event.target.value)}
-          />
-        </label>
-        <label>
-          Mes
-          <select value={mes} onChange={event => setMes(event.target.value)}>
-            <option value="">Último</option>
-            {Array.from({ length: 12 }, (_, index) => (
-              <option key={index + 1} value={String(index + 1)}>
-                {index + 1}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Año
-          <input value={anio} onChange={event => setAnio(event.target.value)} />
-        </label>
-        <label>
-          Turno
-          <select value={turno} onChange={event => setTurno(event.target.value)}>
-            <option value="">Todos</option>
-            <option value="TARDE">Tarde</option>
-            <option value="NOCHE">Noche</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="analysis-nav">
-        {[
-          ['dashboard', 'Dashboard'],
-          ['ranking', 'Ranking Operativo'],
-          ['operador', 'Ficha Operador'],
-          ['canchas', 'Canchas'],
-          ['asistente', 'Asistente Operativo']
-        ].map(([id, etiqueta]) => (
-          <button
-            key={id}
-            className={tab === id ? 'sel' : ''}
-            onClick={() => setTab(id)}
-          >
-            {etiqueta}
-          </button>
-        ))}
-      </div>
-
-      {cargando && <div className="notice">Cargando datos reales...</div>}
-      {mensaje && <div className="notice">{mensaje}</div>}
-
-      {tab === 'dashboard' &&
-        (!hayDatos ? (
-          <SinDatos
-            texto={`Sin datos para el período seleccionado (${periodo}, mes ${mes || 'último'}, año ${
-              anio || 'último'
-            }).`}
-          />
-        ) : (
-          <>
-            <div className="analysis-kpis">
-              <Tarjeta
-                titulo="📈 PRODUCTIVIDAD PROMEDIO"
-                valor={formatoNumero(resumenGeneral.productividad)}
-                detalle={`Target ${formatoNumero(resumenGeneral.target)} · Cumplimiento ${formatoPorcentaje(
-                  resumenGeneral.cumplimiento
-                )}`}
-                detalle2={
-                  resumenGeneral.cumplimiento >= 100
-                    ? `${formatoPorcentaje(
-                        resumenGeneral.cumplimiento - 100
-                      )} por encima del objetivo`
-                    : `${formatoPorcentaje(
-                        100 - resumenGeneral.cumplimiento
-                      )} debajo del objetivo`
-                }
-              />
-              <Tarjeta
-                titulo="🎯 CUMPLIMIENTO DEL TARGET"
-                valor={formatoPorcentaje(resumenGeneral.cumplimiento)}
-                detalle={`Productividad ${formatoNumero(
-                  resumenGeneral.productividad
-                )} / Target ${formatoNumero(resumenGeneral.target)}`}
-              />
-              <Tarjeta
-                titulo="✅ CALIDAD DE ARMADO"
-                valor={
-                  resumenGeneral.calidad === null
-                    ? 'Sin datos'
-                    : formatoPorcentaje(resumenGeneral.calidad)
-                }
-                detalle={`${formatoNumero(resumenGeneral.paletas)} paletas armadas · ${
-                  resumenGeneral.paletasConError
-                } con error`}
-                detalle2={`Tasa de error ${formatoPorcentaje(
-                  resumenGeneral.tasaError
-                )} · Voice ${resumenGeneral.erroresVoice} / Gatera ${
-                  resumenGeneral.erroresGatera
-                }`}
-              />
-              <Tarjeta
-                titulo="📦 PALETAS ARMADAS"
-                valor={formatoNumero(resumenGeneral.paletas)}
-                detalle={`${resumenGeneral.dias} días con actividad`}
-                detalle2={`${formatoNumero(resumenGeneral.packs)} packs procesados`}
-              />
-            </div>
-
-            <div className="analysis-kpis">
-              {[
-                ['TARDE', resumenTarde],
-                ['NOCHE', resumenNoche]
-              ].map(([clave, resumen]) => (
-                <Tarjeta
-                  key={clave}
-                  titulo={`TURNO ${nombreTurno(clave).toUpperCase()}`}
-                  valor={resumen.paletas ? formatoNumero(resumen.productividad) : 'Sin datos'}
-                  detalle={
-                    resumen.paletas
-                      ? `Target ${formatoNumero(resumen.target)} · Cumplimiento ${formatoPorcentaje(
-                          resumen.cumplimiento
-                        )}`
-                      : 'Sin actividad en el período'
-                  }
-                  detalle2={
-                    resumen.paletas
-                      ? `${formatoNumero(resumen.paletas)} paletas · ${
-                          resumen.paletasConError
-                        } con error · Calidad ${formatoPorcentaje(resumen.calidad)}`
-                      : ''
-                  }
-                />
-              ))}
-              <Tarjeta
-                titulo="📊 VARIACIÓN VS. PERÍODO ANTERIOR"
-                valor={
-                  variacionProductividad === null
-                    ? 'Sin comparación'
-                    : `${variacionProductividad >= 0 ? '+' : ''}${formatoPorcentaje(
-                        variacionProductividad
-                      )}`
-                }
-                detalle={`Anterior ${formatoNumero(
-                  resumenGeneralPrevio.productividad
-                )} · Actual ${formatoNumero(resumenGeneral.productividad)}`}
-              />
-              <Tarjeta
-                titulo="🔎 CONTROL VOICE"
-                valor={formatoPorcentaje(resumenGeneral.tasaControl)}
-                detalle={`${resumenGeneral.verificadasVoice} paletas verificadas de ${formatoNumero(
-                  resumenGeneral.paletas
-                )} armadas`}
-              />
-            </div>
-          </>
-        ))}
-
-      {tab === 'ranking' && (
-        <section>
-          <h2>🏆 Ranking Operativo</h2>
-          <div className="notice">
-            Mínimo {MIN_DIAS} días. Score = 35% cumplimiento contra target + 40% calidad +
-            25% paletas armadas. Más de 24 paletas con error o tasa superior al 4% impide
-            ser Mejor Operador.
-          </div>
-          <div className="analysis-nav">
-            {['TARDE', 'NOCHE'].map(valor => (
-              <button
-                key={valor}
-                className={rankingTurno === valor ? 'sel' : ''}
-                onClick={() => setRankingTurno(valor)}
-              >
-                Turno {nombreTurno(valor)}
-              </button>
-            ))}
-          </div>
-
-          {!ranking.length ? (
-            <SinDatos
-              texto={`No hay operadores con ${MIN_DIAS} días o más en el Turno ${nombreTurno(
-                rankingTurno
-              )}.`}
-            />
-          ) : (
-            <>
-              <div className="analysis-kpis">
-                <Tarjeta
-                  titulo="🏆 MEJOR OPERADOR"
-                  valor={mejorElegible?.nombre || 'Sin elegible'}
-                  detalle={
-                    mejorElegible
-                      ? `Score ${mejorElegible.score.toFixed(1)} · ${mejorElegible.dias} días · ${formatoNumero(
-                          mejorElegible.paletas
-                        )} paletas`
-                      : 'Todos los operadores presentan alertas críticas'
-                  }
-                  detalle2={
-                    mejorElegible
-                      ? `${mejorElegible.paletasConError} con error · Tasa ${formatoPorcentaje(
-                          mejorElegible.tasaError
-                        )}`
-                      : ''
-                  }
-                />
-                <Tarjeta
-                  titulo="🥈 SEGUNDO OPERADOR"
-                  valor={segundoElegible?.nombre || 'Sin elegible'}
-                  detalle={
-                    segundoElegible
-                      ? `Score ${segundoElegible.score.toFixed(1)} · ${segundoElegible.dias} días · ${formatoNumero(
-                          segundoElegible.paletas
-                        )} paletas`
-                      : 'Sin segundo operador elegible'
-                  }
-                  detalle2={
-                    segundoElegible
-                      ? `${segundoElegible.paletasConError} con error · Calidad ${formatoPorcentaje(
-                          segundoElegible.calidad
-                        )}`
-                      : ''
-                  }
-                />
-                <Tarjeta
-                  titulo="🚨 REQUIERE ATENCIÓN"
-                  valor={requiereAtencion?.nombre || 'Sin datos'}
-                  detalle={
-                    requiereAtencion
-                      ? `${requiereAtencion.estado} · Score ${requiereAtencion.score.toFixed(1)}`
-                      : 'Sin operadores elegibles'
-                  }
-                  detalle2={
-                    requiereAtencion
-                      ? `${requiereAtencion.paletasConError} errores · Cumplimiento ${formatoPorcentaje(
-                          requiereAtencion.cumplimiento
-                        )}`
-                      : ''
-                  }
-                />
-              </div>
-
-              <div className="scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Operador</th>
-                      <th>Turno</th>
-                      <th>Días</th>
-                      <th>Paletas</th>
-                      <th>Productividad</th>
-                      <th>Target</th>
-                      <th>Cumplimiento</th>
-                      <th>Voice</th>
-                      <th>Gatera</th>
-                      <th>Con error</th>
-                      <th>Tasa error</th>
-                      <th>Calidad</th>
-                      <th>Score</th>
-                      <th>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ranking.map((item, indice) => (
-                      <tr key={item.key}>
-                        <td>{indice + 1}</td>
-                        <td>
-                          <button
-                            onClick={() => {
-                              setSeleccionado(item.key);
-                              setBusqueda(item.nombre);
-                              setTab('operador');
-                            }}
-                          >
-                            {item.nombre}
-                          </button>
-                        </td>
-                        <td>{nombreTurno(rankingTurno)}</td>
-                        <td>{item.dias}</td>
-                        <td>{formatoNumero(item.paletas)}</td>
-                        <td>{formatoNumero(item.productividad)}</td>
-                        <td>{formatoNumero(item.target)}</td>
-                        <td>{formatoPorcentaje(item.cumplimiento)}</td>
-                        <td>{item.erroresVoice}</td>
-                        <td>{item.erroresGatera}</td>
-                        <td>{item.paletasConError}</td>
-                        <td>{formatoPorcentaje(item.tasaError)}</td>
-                        <td>{formatoPorcentaje(item.calidad)}</td>
-                        <td>{item.score.toFixed(1)}</td>
-                        <td>{item.estado}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-          {!!noElegibles.length && (
-            <div className="notice">
-              <b>No elegibles por tener menos de {MIN_DIAS} días:</b>{' '}
-              {noElegibles.map(item => `${item.nombre} (${item.dias} días)`).join(' · ')}
-            </div>
-          )}
-        </section>
-      )}
-
-      {tab === 'operador' && (
-        <section>
-          <h2>🔍 Ficha completa del operador</h2>
-          <input
-            value={busqueda}
-            onChange={event => {
-              setBusqueda(event.target.value);
-              setSeleccionado('');
-            }}
-            placeholder="Buscar por legajo, nombre o apellido..."
-          />
-          {!!opcionesOperador.length && !seleccionado && (
-            <div className="notice">
-              {opcionesOperador.map(item => (
-                <button
-                  key={item.key}
-                  onClick={() => {
-                    setSeleccionado(item.key);
-                    setBusqueda(item.nombre);
-                  }}
-                >
-                  {item.nombre} · {item.legajo || 'Sin legajo'}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!ficha ? (
-            <SinDatos texto="Escribí un nombre o legajo y seleccioná un operador." />
-          ) : (
-            <>
-              <div className="analysis-kpis">
-                <Tarjeta
-                  titulo="👤 OPERADOR"
-                  valor={ficha.nombre}
-                  detalle={`Legajo ${ficha.legajo || '--'} · ${ficha.turnos
-                    .map(nombreTurno)
-                    .join(' / ')}`}
-                  detalle2={
-                    ficha.elegible
-                      ? `Elegible: ${ficha.dias} días`
-                      : `No elegible: ${ficha.dias} de ${MIN_DIAS} días requeridos`
-                  }
-                />
-                <Tarjeta
-                  titulo="📈 PRODUCTIVIDAD"
-                  valor={formatoNumero(ficha.productividad)}
-                  detalle={`Target ${formatoNumero(ficha.target)} · Cumplimiento ${formatoPorcentaje(
-                    ficha.cumplimiento
-                  )}`}
-                  detalle2={
-                    ficha.cumplimiento >= 100
-                      ? `${formatoPorcentaje(
-                          ficha.cumplimiento - 100
-                        )} sobre el objetivo`
-                      : `${formatoPorcentaje(
-                          100 - ficha.cumplimiento
-                        )} debajo del objetivo`
-                  }
-                />
-                <Tarjeta
-                  titulo="📦 PALETAS ARMADAS"
-                  valor={formatoNumero(ficha.paletas)}
-                  detalle={`${ficha.dias} días · Promedio ${formatoNumero(
-                    ficha.paletas / Math.max(1, ficha.dias)
-                  )} por día`}
-                  detalle2={`${formatoNumero(ficha.packs)} packs procesados`}
-                />
-                <Tarjeta
-                  titulo="✅ CALIDAD DE ARMADO"
-                  valor={formatoPorcentaje(ficha.calidad)}
-                  detalle={`${ficha.paletasConError} paletas con error · Tasa ${formatoPorcentaje(
-                    ficha.tasaError
-                  )}`}
-                  detalle2={`Voice ${ficha.erroresVoice} · Gatera ${ficha.erroresGatera}`}
-                />
-              </div>
-
-              <div className="analysis-kpis">
-                <Tarjeta
-                  titulo="📅 MEJOR DÍA"
-                  valor={
-                    diasFicha.length
-                      ? fechaAR([...diasFicha].sort((a, b) => b.productividad - a.productividad)[0].fecha)
-                      : '--'
-                  }
-                  detalle={
-                    diasFicha.length
-                      ? `Productividad ${formatoNumero(
-                          [...diasFicha].sort((a, b) => b.productividad - a.productividad)[0]
-                            .productividad
-                        )}`
-                      : 'Sin datos'
-                  }
-                />
-                <Tarjeta
-                  titulo="📉 PEOR DÍA"
-                  valor={
-                    diasFicha.length
-                      ? fechaAR([...diasFicha].sort((a, b) => a.productividad - b.productividad)[0].fecha)
-                      : '--'
-                  }
-                  detalle={
-                    diasFicha.length
-                      ? `Productividad ${formatoNumero(
-                          [...diasFicha].sort((a, b) => a.productividad - b.productividad)[0]
-                            .productividad
-                        )}`
-                      : 'Sin datos'
-                  }
-                />
-                <Tarjeta
-                  titulo="🔄 VS. PERÍODO ANTERIOR"
-                  valor={
-                    datosPreviosFicha?.productividad
-                      ? formatoPorcentaje(
-                          ((ficha.productividad - datosPreviosFicha.productividad) /
-                            datosPreviosFicha.productividad) *
-                            100
-                        )
-                      : 'Sin comparación'
-                  }
-                  detalle={
-                    datosPreviosFicha?.productividad
-                      ? `${formatoNumero(datosPreviosFicha.productividad)} → ${formatoNumero(
-                          ficha.productividad
-                        )}`
-                      : 'No hay registros anteriores'
-                  }
-                />
-                <Tarjeta
-                  titulo="🔎 CONTROL VOICE"
-                  valor={formatoPorcentaje(ficha.tasaControl)}
-                  detalle={`${ficha.verificadasVoice} verificadas de ${formatoNumero(
-                    ficha.paletas
-                  )} armadas`}
-                />
-              </div>
-
-              <div className="executive-grid">
-                <section>
-                  <h3>🎯 Desempeño por cancha y turno</h3>
-                  <div className="scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Cancha</th>
-                          <th>Turno</th>
-                          <th>Días</th>
-                          <th>Paletas</th>
-                          <th>Productividad</th>
-                          <th>Target</th>
-                          <th>Cumplimiento</th>
-                          <th>Errores</th>
-                          <th>Calidad</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detalleCanchasFicha.map(item => (
-                          <tr key={`${item.turno}-${item.cancha}`}>
-                            <td>{item.cancha}</td>
-                            <td>{nombreTurno(item.turno)}</td>
-                            <td>{item.dias}</td>
-                            <td>{formatoNumero(item.paletas)}</td>
-                            <td>{formatoNumero(item.productividad)}</td>
-                            <td>{formatoNumero(item.target)}</td>
-                            <td>{formatoPorcentaje(item.cumplimiento)}</td>
-                            <td>{item.paletasConError}</td>
-                            <td>{formatoPorcentaje(item.calidad)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section>
-                  <h3>⚠ Errores, SKU y motivos</h3>
-                  {!detalleErroresFicha.length ? (
-                    <p>Sin errores reales en el período.</p>
-                  ) : (
-                    detalleErroresFicha.slice(0, 15).map(item => (
-                      <div className="trend-row" key={`${item.sku}-${item.motivo}`}>
-                        <span>
-                          SKU {item.sku} · {item.motivo}
-                          <small>
-                            {item.fechas.map(fechaAR).join(', ')} · Canchas{' '}
-                            {item.canchas.join(', ')}
-                          </small>
-                        </span>
-                        <b>
-                          {item.cantidad} · V {item.voice} / G {item.gatera}
-                        </b>
-                      </div>
-                    ))
-                  )}
-                </section>
-              </div>
-
-              <section className="panel">
-                <h3>🧠 Diagnóstico operativo</h3>
-                {diagnosticoFicha.map((item, indice) => (
-                  <p key={indice}>• {item}</p>
-                ))}
-              </section>
-            </>
-          )}
-        </section>
-      )}
-
-      {tab === 'canchas' && (
-        <section>
-          <h2>🎯 Análisis de canchas por turno</h2>
-          {[
-            ['TARDE', canchasTarde],
-            ['NOCHE', canchasNoche]
-          ].map(([clave, lista]) => (
-            <section className="panel" key={clave}>
-              <h3>Turno {nombreTurno(clave)}</h3>
-              {!lista.length ? (
-                <SinDatos texto={`Sin datos para el Turno ${nombreTurno(clave)}.`} />
-              ) : (
-                <div className="scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Cancha</th>
-                        <th>Días</th>
-                        <th>Operadores</th>
-                        <th>Paletas</th>
-                        <th>Productividad</th>
-                        <th>Target</th>
-                        <th>Cumplimiento</th>
-                        <th>Voice</th>
-                        <th>Gatera</th>
-                        <th>Con error</th>
-                        <th>Tasa error</th>
-                        <th>Calidad</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lista.map((item, indice) => (
-                        <tr key={`${clave}-${item.cancha}`}>
-                          <td>{indice + 1}</td>
-                          <td>{item.cancha}</td>
-                          <td>{item.dias}</td>
-                          <td>{item.operadores}</td>
-                          <td>{formatoNumero(item.paletas)}</td>
-                          <td>{formatoNumero(item.productividad)}</td>
-                          <td>{formatoNumero(item.target)}</td>
-                          <td>{formatoPorcentaje(item.cumplimiento)}</td>
-                          <td>{item.erroresVoice}</td>
-                          <td>{item.erroresGatera}</td>
-                          <td>{item.paletasConError}</td>
-                          <td>{formatoPorcentaje(item.tasaError)}</td>
-                          <td>{formatoPorcentaje(item.calidad)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          ))}
-        </section>
-      )}
-
-      {tab === 'asistente' && (
-        <section>
-          <h2>🤖 Asistente Operativo</h2>
-          <p>
-            Las respuestas se calculan con datos reales del período seleccionado. Si la
-            información no alcanza, el asistente lo indica expresamente.
-          </p>
-          <div className="analysis-nav">
-            {preguntas.map(([id, etiqueta]) => (
-              <button
-                key={id}
-                onClick={() => {
-                  setPregunta(id);
-                  setRespuesta(preguntaRapida(id));
-                }}
-              >
-                {etiqueta}
-              </button>
-            ))}
-          </div>
-
-          {respuesta ? (
-            <section className="panel">
-              <h3>{respuesta.titulo}</h3>
-              <p>{respuesta.resumen}</p>
-              {respuesta.datos.map((dato, indice) => (
-                <p key={indice}>• {dato}</p>
-              ))}
-              {pregunta === 'fiveWhy' && (
-                <div className="notice">
-                  Contexto generado automáticamente. Las respuestas del 5 Why deben ser
-                  completadas y validadas por el equipo operativo.
-                </div>
-              )}
-              {pregunta === 'adf' && (
-                <div className="notice">
-                  La recomendación de ADF se basa en los umbrales definidos; requiere
-                  validación del supervisor.
-                </div>
-              )}
-            </section>
-          ) : (
-            <SinDatos texto="Elegí una pregunta para generar el análisis." />
-          )}
-        </section>
-      )}
-    </section>
-  );
+    {tab==='assistant'&&<section><h2>🤖 Asistente Operativo</h2><p>Respuestas calculadas con datos reales del período y turno seleccionados.</p><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8}}>{assistantQuestions.map(([id,label])=><button key={id} onClick={()=>setAssistant(answer(id))}>{label}</button>)}</div>{assistant?<section className="panel"><h3>{assistant.title}</h3>{assistant.lines.map((line,i)=><p key={i}>• {line}</p>)}</section>:<NoData>Elegí una pregunta para generar el análisis.</NoData>}</section>}
+  </section>;
 }
