@@ -49,14 +49,13 @@ const noEsError = row => {
   return cantidad <= 0 || motivo === 'OK' || motivo.includes('SIN NOVEDAD') || motivo.includes('SIN ERROR');
 };
 const errorCantidad = () => 1;
-const cantidadAfectada = row => row.__origen === 'VOICE' ? (n(row.total_errores) || 1) : (n(row.cantidad) || 1);
 const paletaErrorKey = row => txt(row.numero_paleta || row.paleta || `${row.__origen}-${row.id || ''}-${row.empleado_id || ''}-${row.fecha || ''}`);
 
 function resumenErrores(rows) {
   const validos = rows.filter(r => !noEsError(r));
   const voice = validos.filter(r => r.__origen === 'VOICE').reduce((s,r) => s + errorCantidad(r), 0);
   const gatera = validos.filter(r => r.__origen === 'GATERA').reduce((s,r) => s + errorCantidad(r), 0);
-  return { validos, voice, gatera, total: voice + gatera, cantidadAfectada: validos.reduce((s,r) => s + cantidadAfectada(r), 0), paletasConError: new Set(validos.map(paletaErrorKey)).size };
+  return { validos, voice, gatera, total: voice + gatera, paletasConError: new Set(validos.map(paletaErrorKey)).size };
 }
 
 function resumen(rows, errorRows, targetGeneral = 0) {
@@ -73,6 +72,22 @@ function resumen(rows, errorRows, targetGeneral = 0) {
 
 const Stat = ({ title, value, detail, detail2 }) => <div><span>{title}</span><b>{value}</b><small>{detail}</small>{detail2 && <small>{detail2}</small>}</div>;
 const NoData = ({ children = 'Sin datos para el período seleccionado.' }) => <div className="notice">{children}</div>;
+
+
+async function cargarTablaCompleta(tabla) {
+  const pagina = 1000;
+  let desde = 0;
+  let resultado = [];
+  while (true) {
+    const { data, error } = await supabase.from(tabla).select('*').order('id', { ascending: true }).range(desde, desde + pagina - 1);
+    if (error) throw error;
+    const filas = data || [];
+    resultado = resultado.concat(filas);
+    if (filas.length < pagina) break;
+    desde += pagina;
+  }
+  return resultado;
+}
 
 export default function AnalisisOperativoV3() {
   const [tab,setTab] = useState('dashboard');
@@ -94,26 +109,25 @@ export default function AnalisisOperativoV3() {
   const [returnToRanking,setReturnToRanking] = useState(false);
   const [selectedCourt,setSelectedCourt] = useState(null);
   const [courtDetailType,setCourtDetailType] = useState('');
+  const [selectedSku,setSelectedSku] = useState('');
   const detailRef = useRef(null);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [p,g,v,e] = await Promise.all([
-        supabase.from('picking').select('*'), supabase.from('errores_gatera').select('*'),
-        supabase.from('errores_voice').select('*'), supabase.from('empleados').select('*')
-      ]);
-      const err = p.error || g.error || v.error || e.error;
-      if (err) setMessage(err.message || 'No se pudieron cargar todos los datos.');
-      setPicking(p.data || []);
-      setErrors([...(g.data || []).map(r => ({...r,__origen:'GATERA'})), ...(v.data || []).map(r => ({...r,__origen:'VOICE'}))]);
-      setEmployees(e.data || []);
-      setLoading(false);
+      try {
+        const [p,g,v,e] = await Promise.all([cargarTablaCompleta('picking'),cargarTablaCompleta('errores_gatera'),cargarTablaCompleta('errores_voice'),cargarTablaCompleta('empleados')]);
+        setPicking(p);
+        setErrors([...g.map(r => ({...r,__origen:'GATERA'})),...v.map(r => ({...r,__origen:'VOICE'}))]);
+        setEmployees(e);
+      } catch (error) {
+        setMessage(error.message || 'No se pudieron cargar todos los datos.');
+      } finally { setLoading(false); }
     })();
   },[]);
 
   useEffect(() => { setAssistant(null); }, [periodo,year,month,turno,fecha]);
-  useEffect(() => { if (selectedCourt && detailRef.current) detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selectedCourt, courtDetailType]);
+  useEffect(() => { if(selectedCourt && detailRef.current) detailRef.current.scrollIntoView({behavior:'smooth',block:'start'}); }, [selectedCourt,courtDetailType]);
 
   const empMap = useMemo(() => new Map(employees.map(e => [txt(e.id),e])),[employees]);
   const inRange = row => {
@@ -183,39 +197,47 @@ export default function AnalisisOperativoV3() {
     return [...map.entries()].map(([k,rows])=>{const[t,c]=k.split('|');const errs=ficha.errors.filter(e=>canonTurno(e.turno)===t&&txt(e.cancha).toUpperCase()===c);return{turno:t,cancha:c,rows,errors:errs,...resumen(rows,errs,TARGET_CANCHA[t]?.[c]||0)};}).sort((a,b)=>b.paletas-a.paletas);
   },[ficha]);
   const fichaErrors = useMemo(() => {
-    if(!ficha)return[]; const map=new Map(); ficha.errors.forEach(e=>{const sku=txt(e.sku||e.codigo||e.material||'SIN SKU');const motivo=txt(e.motivo||'SIN MOTIVO');const k=`${sku}|${motivo}`;if(!map.has(k))map.set(k,{sku,motivo,total:0,voice:0,gatera:0,afectada:0,dates:new Set(),courts:new Set()});const x=map.get(k);const c=errorCantidad(e);x.total+=c;x.afectada+=cantidadAfectada(e);x[e.__origen==='VOICE'?'voice':'gatera']+=c;x.dates.add(iso(e.fecha));x.courts.add(txt(e.cancha));});return[...map.values()].map(x=>({...x,dates:[...x.dates].sort(),courts:[...x.courts].filter(Boolean)})).sort((a,b)=>b.total-a.total);
+    if(!ficha)return[]; const map=new Map(); ficha.errors.forEach(e=>{const sku=txt(e.sku||e.codigo||e.material||'SIN SKU');const motivo=txt(e.motivo||'SIN MOTIVO');const k=`${sku}|${motivo}`;if(!map.has(k))map.set(k,{sku,motivo,total:0,voice:0,gatera:0,dates:new Set(),courts:new Set()});const x=map.get(k);const c=errorCantidad(e);x.total+=c;x[e.__origen==='VOICE'?'voice':'gatera']+=c;x.dates.add(iso(e.fecha));x.courts.add(txt(e.cancha));});return[...map.values()].map(x=>({...x,dates:[...x.dates].sort(),courts:[...x.courts].filter(Boolean)})).sort((a,b)=>b.total-a.total);
   },[ficha]);
   const dayDetails = useMemo(() => {
     if(!ficha)return[];const map=new Map();ficha.rows.forEach(r=>{const d=iso(r.fecha);if(!map.has(d))map.set(d,[]);map.get(d).push(r);});return[...map.entries()].map(([date,rows])=>{const errs=ficha.errors.filter(e=>iso(e.fecha)===date);const main=rows.slice().sort((a,b)=>n(b.pallets)-n(a.pallets))[0];return{date,cancha:txt(main?.cancha),...resumen(rows,errs,targetFila(main||{}))};}).sort((a,b)=>a.date.localeCompare(b.date));
   },[ficha]);
 
+  const analizarErrores = rows => {
+    const validos = rows.filter(r => !noEsError(r));
+    const sku = new Map(), motivos = new Map(), fechas = new Map(), operadores = new Map();
+    validos.forEach(e => {
+      const s = txt(e.sku || e.codigo || e.material || 'SIN SKU');
+      const m = txt(e.motivo || 'SIN MOTIVO');
+      const d = iso(e.fecha) || 'SIN FECHA';
+      const o = txt(empMap.get(txt(e.empleado_id))?.apellido_nombre || 'SIN OPERADOR');
+      sku.set(s,(sku.get(s)||0)+1); motivos.set(m,(motivos.get(m)||0)+1); fechas.set(d,(fechas.get(d)||0)+1); operadores.set(o,(operadores.get(o)||0)+1);
+    });
+    const top = map => [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10);
+    return { validos, sku:top(sku), motivos:top(motivos), fechas:top(fechas), operadores:top(operadores) };
+  };
+
+  const ErrorBars = ({ titulo, items, total, onSelect }) => <section className="panel"><h3>{titulo}</h3>{items.length ? items.map(([label,value],i) => <button key={`${label}-${i}`} onClick={()=>onSelect?.(label)} style={{display:'grid',gridTemplateColumns:'120px 1fr 85px',alignItems:'center',gap:10,width:'100%',border:0,background:'transparent',padding:'7px 0',textAlign:'left',cursor:onSelect?'pointer':'default'}}><b>{label}</b><span style={{display:'block',height:14,borderRadius:8,background:'#eee',overflow:'hidden'}}><span style={{display:'block',height:'100%',width:`${Math.max(5,(value/Math.max(1,items[0][1]))*100)}%`,background:'#111'}} /></span><b style={{color:'#b28a00'}}>{value} · {pct(value/Math.max(1,total)*100)}</b></button>) : <p>Sin errores reales.</p>}</section>;
+
   const courtDetail = useMemo(() => {
-    if (!selectedCourt) return null;
-    const source = selectedCourt.turno === 'TARDE' ? courtsTarde : courtsNoche;
-    return source.find(x => x.cancha === selectedCourt.cancha) || null;
-  }, [selectedCourt, courtsTarde, courtsNoche]);
-
-  const courtOperators = useMemo(() => {
-    if (!courtDetail) return [];
-    const keys = [...new Set(courtDetail.rows.map(operatorKey))];
-    return keys.map(key => {
-      const base = operatorsBase.find(x => x.key === key);
-      if (!base) return null;
-      const rows = courtDetail.rows.filter(r => operatorKey(r) === key);
-      const errs = courtDetail.errors.filter(e => txt(e.empleado_id) === base.employeeId);
-      return { ...base, ...resumen(rows, errs, courtDetail.target) };
-    }).filter(Boolean).sort((a,b) => b.paletas - a.paletas);
-  }, [courtDetail, operatorsBase]);
-
-  const courtErrors = useMemo(() => {
-    if (!courtDetail) return [];
-    return courtDetail.errors.filter(e => !noEsError(e)).sort((a,b) => iso(a.fecha).localeCompare(iso(b.fecha)));
-  }, [courtDetail]);
+    if(!selectedCourt) return null;
+    return (selectedCourt.turno==='TARDE'?courtsTarde:courtsNoche).find(x=>x.cancha===selectedCourt.cancha)||null;
+  },[selectedCourt,courtsTarde,courtsNoche]);
+  const courtAnalysis = useMemo(()=>analizarErrores(courtDetail?.errors||[]),[courtDetail,empMap]);
+  const courtOperators = useMemo(()=>{
+    if(!courtDetail)return[];
+    return [...new Set(courtDetail.rows.map(operatorKey))].map(key=>{const base=operatorsBase.find(x=>x.key===key);if(!base)return null;const rows=courtDetail.rows.filter(r=>operatorKey(r)===key);const errs=courtDetail.errors.filter(e=>txt(e.empleado_id)===base.employeeId);return{...base,...resumen(rows,errs,courtDetail.target)}}).filter(Boolean).sort((a,b)=>b.paletas-a.paletas);
+  },[courtDetail,operatorsBase]);
+  const filteredCourtErrors = useMemo(()=>{
+    let rows=courtAnalysis.validos;
+    if(selectedSku) rows=rows.filter(e=>txt(e.sku||e.codigo||e.material||'SIN SKU')===selectedSku);
+    return rows;
+  },[courtAnalysis,selectedSku]);
 
   const assistantQuestions=[['op','¿Quién tuvo más errores?'],['turn','¿Qué turno tuvo mayor tasa de error?'],['court','¿Qué cancha necesita revisión?'],['sku','¿Qué SKU se repitió más?'],['best','¿Quién produjo más paletas con menos errores?'],['today','¿Qué ocurrió en la fecha seleccionada?'],['why','¿Dónde conviene realizar un 5 Why?'],['adf','¿Qué caso requiere un ADF?']];
   const answer = id => {
     if(!pFiltered.length)return{title:'Sin datos',lines:['No hay información para el período y turno seleccionados.']};
-    if(id==='op'){const x=operatorsBase.slice().sort((a,b)=>b.total-a.total)[0];return{title:'Operador con más errores',lines:x?[`${x.name}: ${x.total} errores reales.`,`Voice ${x.voice} · Gatera ${x.gatera}.`,`Cantidad afectada informada: ${x.cantidadAfectada}.`,`${fmt(x.paletas)} paletas armadas · tasa ${pct(x.tasaError)}.`]:['Sin errores reales.'],details:x?.errors||[]};}
+    if(id==='op'){const x=operatorsBase.slice().sort((a,b)=>b.total-a.total)[0];return{title:'Operador con más errores',lines:x?[`${x.name}: ${x.total} errores totales.`,`Voice ${x.voice} · Gatera ${x.gatera}.`,`${fmt(x.paletas)} paletas armadas · tasa ${pct(x.tasaError)}.`]:['Sin errores reales.']};}
     if(id==='turn'){const a=[{name:'Tarde',...tarde},{name:'Noche',...noche}].filter(x=>x.paletas);const x=a.sort((a,b)=>b.tasaError-a.tasaError)[0];return{title:'Turno con mayor tasa de error',lines:x?[`${x.name}: ${pct(x.tasaError)}.`,`${x.total} errores totales sobre ${fmt(x.paletas)} paletas.`,`Target ${fmt(x.target)} · cumplimiento ${pct(x.cumplimiento)}.`]:['Información insuficiente.']};}
     if(id==='court'){const all=[...courtsTarde,...courtsNoche];const x=all.sort((a,b)=>(b.tasaError*2+Math.max(0,100-b.cumplimiento))-(a.tasaError*2+Math.max(0,100-a.cumplimiento)))[0];if(!x)return{title:'Información insuficiente',lines:[]};const level=x.tasaError>4||x.total>24?'Crítica':x.tasaError>2||x.cumplimiento<100?'Requiere revisión':x.tasaError>1?'Seguimiento preventivo':'Sin alerta';return{title:`Cancha ${x.cancha} · Turno ${nombreTurno(x.turno)}`,lines:[`Nivel: ${level}.`,`Productividad ${fmt(x.productividad)} / Target ${fmt(x.target)} · cumplimiento ${pct(x.cumplimiento)}.`,`${fmt(x.paletas)} paletas · ${x.total} errores totales · tasa ${pct(x.tasaError)}.`]};}
     if(id==='sku'){const all=errors.filter(inRange).filter(e=>!noEsError(e));const map=new Map();all.forEach(e=>{const sku=txt(e.sku||e.codigo||e.material||'SIN SKU');map.set(sku,(map.get(sku)||0)+errorCantidad(e));});const x=[...map.entries()].sort((a,b)=>b[1]-a[1])[0];return{title:'SKU más repetido',lines:x?[`SKU ${x[0]}: ${x[1]} errores totales.`]:['No hay SKU con errores reales.']};}
@@ -257,16 +279,16 @@ export default function AnalisisOperativoV3() {
     {tab==='operator'&&<section>{returnToRanking&&<button onClick={()=>{setReturnToRanking(false);setTab('ranking')}}>← Volver al Ranking</button>}<h2>🔍 Ficha completa del operador</h2><input value={search} onChange={e=>{setSearch(e.target.value);setSelected('')}} placeholder="Buscar por legajo, nombre o apellido..."/>{options.length>0&&!selected&&<div className="notice">{options.map(o=><button key={o.key} onClick={()=>{setSelected(o.key);setSearch(o.name)}}>{o.name} · {o.legajo||'Sin legajo'}</button>)}</div>}
       {!ficha?<NoData>Escribí un nombre o legajo y seleccioná un operador.</NoData>:<><div className="analysis-kpis"><Stat title="👤 OPERADOR" value={ficha.name} detail={`Legajo ${ficha.legajo||'--'}`} detail2={`${ficha.dias} días trabajados`}/><Stat title="📈 PRODUCTIVIDAD PROMEDIO" value={fmt(ficha.productividad)} detail={`Cumplimiento global ${pct(ficha.cumplimiento)}`} detail2="El target fijo de cada cancha se detalla debajo"/><Stat title="📦 PALETAS ARMADAS" value={fmt(ficha.paletas)} detail={`Promedio ${fmt(ficha.paletas/Math.max(1,ficha.dias))} paletas por día`} detail2={`${fmt(ficha.bultos)} bultos · promedio ${fmt(ficha.bultos/Math.max(1,ficha.dias))} por día`}/><Stat title="✅ CALIDAD DE ARMADO" value={pct(ficha.calidad)} detail={`${ficha.total} errores totales · ${ficha.paletasConError} paletas afectadas`} detail2={`Voice ${ficha.voice} · Gatera ${ficha.gatera} · tasa ${pct(ficha.tasaError)}`}/></div>
       <div className="analysis-kpis">{dayDetails.length>0&&<><Stat title="📅 MEJOR JORNADA" value={fechaAR([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].date)} detail={`Cancha ${[...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].cancha} · Productividad ${fmt([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].productividad)}`} detail2={`${fmt([...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].paletas)} paletas · ${[...dayDetails].sort((a,b)=>b.productividad-a.productividad)[0].total} errores`}/><Stat title="📉 JORNADA A REVISAR" value={fechaAR([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].date)} detail={`Cancha ${[...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].cancha} · Productividad ${fmt([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].productividad)}`} detail2={`${fmt([...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].paletas)} paletas · ${[...dayDetails].sort((a,b)=>a.productividad-b.productividad)[0].total} errores`}/></>}</div>
-      <div><section className="panel"><h3>🎯 Desempeño por cancha y turno</h3><div className="scroll"><table><thead><tr><th>Cancha</th><th>Turno</th><th>Días</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target fijo</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas afectadas</th><th>Calidad de armado</th></tr></thead><tbody>{fichaCourts.map(x=><tr key={`${x.turno}-${x.cancha}`}><td>{x.cancha}</td><td>{nombreTurno(x.turno)}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.calidad)}</td></tr>)}</tbody></table></div></section><section className="panel"><h3>⚠ Errores, SKU y motivos</h3>{fichaErrors.length?fichaErrors.slice(0,15).map(x=><div className="trend-row" key={`${x.sku}-${x.motivo}`}><span>SKU {x.sku} · {x.motivo}<small>{x.dates.length===1?`${x.total} errores el mismo día: ${fechaAR(x.dates[0])}`:`${x.total} errores distribuidos en ${x.dates.length} días: ${x.dates.map(fechaAR).join(', ')}`} · Canchas {x.courts.join(', ')}</small></span><b>{x.total} errores · Cantidad afectada {x.afectada} · Voice {x.voice} / Gatera {x.gatera}</b></div>):<p>Sin errores reales en el período.</p>}</section></div></>}
+      <div><section className="panel"><h3>🎯 Desempeño por cancha y turno</h3><div className="scroll"><table><thead><tr><th>Cancha</th><th>Turno</th><th>Días</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target fijo</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas afectadas</th><th>Calidad de armado</th></tr></thead><tbody>{fichaCourts.map(x=><tr key={`${x.turno}-${x.cancha}`}><td>{x.cancha}</td><td>{nombreTurno(x.turno)}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.calidad)}</td></tr>)}</tbody></table></div></section><section className="panel"><h3>⚠ Errores, SKU y motivos</h3>{ficha&&<ErrorBars titulo="Top 10 SKU con más errores" items={analizarErrores(ficha.errors).sku} total={ficha.total} />}{fichaErrors.length?fichaErrors.slice(0,15).map(x=><div className="trend-row" key={`${x.sku}-${x.motivo}`}><span>SKU {x.sku} · {x.motivo}<small>{x.dates.length===1?`${x.total} errores el mismo día: ${fechaAR(x.dates[0])}`:`${x.total} errores distribuidos en ${x.dates.length} días: ${x.dates.map(fechaAR).join(', ')}`} · Canchas {x.courts.join(', ')}</small></span><b>Total {x.total} · Voice {x.voice} / Gatera {x.gatera}</b></div>):<p>Sin errores reales en el período.</p>}</section></div></>}
     </section>}
 
-    {tab==='courts'&&<section><h2>🎯 Análisis de canchas por turno</h2>{[['TARDE',courtsTarde],['NOCHE',courtsNoche]].map(([t,list])=><section className="panel" key={t}><h3>Turno {nombreTurno(t)} · Target general {TARGET_GENERAL[t]}</h3>{!list.length?<NoData/>:<div className="scroll"><table><thead><tr><th>#</th><th>Cancha</th><th>Días</th><th>Operadores</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target</th><th>Cumplimiento</th><th>Errores totales</th><th>Paletas afectadas</th><th>Calidad de armado</th><th>Detalle</th></tr></thead><tbody>{list.map((x,i)=><tr key={`${t}-${x.cancha}`}><td>{i+1}</td><td>{x.cancha}</td><td>{x.dias}</td><td><button style={{background:'#111',color:'#ffd400',border:0,borderRadius:8,padding:'7px 10px',fontWeight:700}} onClick={()=>{setSelectedCourt({turno:t,cancha:x.cancha});setCourtDetailType('operators')}}>{x.operators} operadores</button></td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td><button style={{background:'#111',color:'#ffd400',border:0,borderRadius:8,padding:'7px 10px',fontWeight:700}} onClick={()=>{setSelectedCourt({turno:t,cancha:x.cancha});setCourtDetailType('errors')}}>{x.total} errores</button></td><td title="Paletas únicas que tuvieron al menos un error. Una paleta puede tener varios errores.">{x.paletasConError}</td><td>{pct(x.calidad)}</td><td><button style={{background:'#111',color:'#ffd400',border:0,borderRadius:8,padding:'7px 10px',fontWeight:700}} onClick={()=>{setSelectedCourt({turno:t,cancha:x.cancha});setCourtDetailType('summary')}}>Abrir</button></td></tr>)}</tbody></table></div>}</section>)}
-      {courtDetail&&<section className="panel" ref={detailRef}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><h3>Detalle {courtDetail.cancha} · Turno {nombreTurno(courtDetail.turno)}</h3><button style={{background:'#111',color:'#ffd400',border:0,borderRadius:8,padding:'8px 12px',fontWeight:700}} onClick={()=>{setSelectedCourt(null);setCourtDetailType('');window.scrollTo({top:0,behavior:'smooth'})}}>Cerrar detalle</button></div><p><b>{courtDetail.total} errores reales:</b> {courtDetail.voice} Voice + {courtDetail.gatera} Gatera. <b>{courtDetail.cantidadAfectada} unidades afectadas informadas.</b> {courtDetail.paletasConError} paletas afectadas. Una paleta puede tener varios errores.</p>
-        {(courtDetailType==='summary'||courtDetailType==='operators')&&<><h3>Operadores de la cancha</h3><div className="scroll"><table><thead><tr><th>Operador</th><th>Días</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target</th><th>Cumplimiento</th><th>Errores Voice</th><th>Errores Gatera</th><th>Errores totales</th><th>Paletas afectadas</th><th>Calidad</th><th>Ficha</th></tr></thead><tbody>{courtOperators.map(x=><tr key={x.key}><td>{x.name}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(courtDetail.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td>{x.paletasConError}</td><td>{pct(x.calidad)}</td><td><button style={{background:'#111',color:'#ffd400',border:0,borderRadius:8,padding:'7px 10px',fontWeight:700}} onClick={()=>{setSelected(x.key);setSearch(x.name);setTab('operator')}}>Ver ficha</button></td></tr>)}</tbody></table></div></>}
-        {(courtDetailType==='summary'||courtDetailType==='errors')&&<><h3>Errores, paletas, fechas, SKU y motivos</h3>{courtErrors.length?<div className="scroll"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Paleta</th><th>Operador</th><th>Cancha</th><th>SKU</th><th>Motivo</th><th>Origen</th><th>Error</th><th>Cantidad afectada</th></tr></thead><tbody>{courtErrors.map((e,i)=><tr key={e.id||i}><td>{fechaAR(e.fecha)}</td><td>{txt(e.hora||e.created_at).slice(11,16)||'--'}</td><td>{txt(e.numero_paleta||e.paleta)||'Sin dato'}</td><td>{txt(empMap.get(txt(e.empleado_id))?.apellido_nombre)||'Sin dato'}</td><td>{txt(e.cancha)||courtDetail.cancha}</td><td>{txt(e.sku||e.codigo||e.material)||'Sin SKU'}</td><td>{txt(e.motivo)||'Sin motivo'}</td><td>{e.__origen==='VOICE'?'Voice':'Gatera'}</td><td>1</td><td>{cantidadAfectada(e)}</td></tr>)}</tbody></table></div>:<p>Sin errores reales en esta cancha y período.</p>}</>}
+    {tab==='courts'&&<section><h2>🎯 Análisis de canchas por turno</h2>{[['TARDE',courtsTarde],['NOCHE',courtsNoche]].map(([t,list])=><section className="panel" key={t}><h3>Turno {nombreTurno(t)} · Target general {TARGET_GENERAL[t]}</h3>{!list.length?<NoData/>:<div className="scroll"><table><thead><tr><th>#</th><th>Cancha</th><th>Días</th><th>Operadores</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target</th><th>Cumplimiento</th><th>Errores</th><th>Paletas afectadas</th><th>Calidad</th></tr></thead><tbody>{list.map((x,i)=><tr key={`${t}-${x.cancha}`}><td>{i+1}</td><td>{x.cancha}</td><td>{x.dias}</td><td><button className="primary compact" onClick={()=>{setSelectedCourt({turno:t,cancha:x.cancha});setCourtDetailType('operators');setSelectedSku('')}}>{x.operators} operadores</button></td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(x.target)}</td><td>{pct(x.cumplimiento)}</td><td><button className="primary compact" onClick={()=>{setSelectedCourt({turno:t,cancha:x.cancha});setCourtDetailType('errors');setSelectedSku('')}}>{x.total} errores</button></td><td>{x.paletasConError || 'Sin dato'}</td><td>{pct(x.calidad)}</td></tr>)}</tbody></table></div>}</section>)}
+      {courtDetail&&<section className="panel" ref={detailRef}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>Detalle {courtDetail.cancha} · Turno {nombreTurno(courtDetail.turno)}</h3><button className="primary compact" onClick={()=>{setSelectedCourt(null);setSelectedSku('')}}>Cerrar detalle</button></div><p><b>{courtDetail.total} errores reales:</b> {courtDetail.voice} Voice + {courtDetail.gatera} Gatera. Las paletas afectadas se muestran solo cuando existe un número de paleta confiable.</p>
+        {(courtDetailType==='operators')&&<div className="scroll"><table><thead><tr><th>Operador</th><th>Días</th><th>Paletas</th><th>Bultos</th><th>Productividad</th><th>Target</th><th>Cumplimiento</th><th>Voice</th><th>Gatera</th><th>Total</th><th>Ficha</th></tr></thead><tbody>{courtOperators.map(x=><tr key={x.key}><td>{x.name}</td><td>{x.dias}</td><td>{fmt(x.paletas)}</td><td>{fmt(x.bultos)}</td><td>{fmt(x.productividad)}</td><td>{fmt(courtDetail.target)}</td><td>{pct(x.cumplimiento)}</td><td>{x.voice}</td><td>{x.gatera}</td><td>{x.total}</td><td><button className="primary compact" onClick={()=>{setSelected(x.key);setSearch(x.name);setTab('operator')}}>Ver ficha</button></td></tr>)}</tbody></table></div>}
+        {courtDetailType==='errors'&&<><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:12}}><ErrorBars titulo="Top 10 SKU" items={courtAnalysis.sku} total={courtDetail.total} onSelect={setSelectedSku}/><ErrorBars titulo="Motivos más repetidos" items={courtAnalysis.motivos} total={courtDetail.total}/><ErrorBars titulo="Días con más errores" items={courtAnalysis.fechas.map(([d,v])=>[fechaAR(d),v])} total={courtDetail.total}/><ErrorBars titulo="Operadores con más errores" items={courtAnalysis.operadores} total={courtDetail.total}/></div><h3>{selectedSku?`Detalle SKU ${selectedSku}`:'Detalle completo de errores'}</h3>{selectedSku&&<button className="primary compact" onClick={()=>setSelectedSku('')}>Ver todos</button>}<div className="scroll"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Paleta</th><th>Operador</th><th>SKU</th><th>Motivo</th><th>Origen</th></tr></thead><tbody>{filteredCourtErrors.map((e,i)=><tr key={e.id||i}><td>{fechaAR(e.fecha)}</td><td>{txt(e.hora||e.created_at).slice(11,16)||'--'}</td><td>{txt(e.numero_paleta||e.paleta)||'Sin dato'}</td><td>{txt(empMap.get(txt(e.empleado_id))?.apellido_nombre)||'Sin dato'}</td><td>{txt(e.sku||e.codigo||e.material)||'Sin SKU'}</td><td>{txt(e.motivo)||'Sin motivo'}</td><td>{e.__origen==='VOICE'?'Voice':'Gatera'}</td></tr>)}</tbody></table></div></>}
       </section>}
     </section>}
 
-    {tab==='assistant'&&<section><h2>🤖 Asistente Operativo</h2><p>Respuestas calculadas con datos reales del período y turno seleccionados.</p><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8}}>{assistantQuestions.map(([id,label])=><button key={id} onClick={()=>setAssistant(answer(id))}>{label}</button>)}</div>{assistant?<section className="panel"><h3>{assistant.title}</h3>{assistant.lines.map((line,i)=><p key={i}>• {line}</p>)}{assistant.details?.length>0&&<div className="scroll"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Paleta</th><th>Operador</th><th>Cancha</th><th>SKU</th><th>Motivo</th><th>Origen</th><th>Error</th><th>Cantidad afectada</th></tr></thead><tbody>{assistant.details.map((e,i)=><tr key={e.id||i}><td>{fechaAR(e.fecha)}</td><td>{txt(e.hora||e.created_at).slice(11,16)||'--'}</td><td>{txt(e.numero_paleta||e.paleta)||'Sin dato'}</td><td>{txt(empMap.get(txt(e.empleado_id))?.apellido_nombre)||'Sin dato'}</td><td>{txt(e.cancha)||'Sin dato'}</td><td>{txt(e.sku||e.codigo||e.material)||'Sin SKU'}</td><td>{txt(e.motivo)||'Sin motivo'}</td><td>{e.__origen==='VOICE'?'Voice':'Gatera'}</td><td>1</td><td>{cantidadAfectada(e)}</td></tr>)}</tbody></table></div>}</section>:<NoData>Elegí una pregunta para generar el análisis.</NoData>}</section>}
+    {tab==='assistant'&&<section><h2>🤖 Asistente Operativo</h2><p>Respuestas calculadas con datos reales del período y turno seleccionados.</p><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8}}>{assistantQuestions.map(([id,label])=><button key={id} onClick={()=>setAssistant(answer(id))}>{label}</button>)}</div>{assistant?<section className="panel"><h3>{assistant.title}</h3>{assistant.lines.map((line,i)=><p key={i}>• {line}</p>)}{assistant.details?.length>0&&<><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:12}}><ErrorBars titulo="Top 10 SKU" items={analizarErrores(assistant.details).sku} total={assistant.details.length}/><ErrorBars titulo="Días con más errores" items={analizarErrores(assistant.details).fechas.map(([d,v])=>[fechaAR(d),v])} total={assistant.details.length}/><ErrorBars titulo="Motivos más repetidos" items={analizarErrores(assistant.details).motivos} total={assistant.details.length}/></div><div className="scroll"><table><thead><tr><th>Fecha</th><th>Paleta</th><th>Operador</th><th>Cancha</th><th>SKU</th><th>Motivo</th><th>Origen</th></tr></thead><tbody>{assistant.details.map((e,i)=><tr key={e.id||i}><td>{fechaAR(e.fecha)}</td><td>{txt(e.numero_paleta||e.paleta)||'Sin dato'}</td><td>{txt(empMap.get(txt(e.empleado_id))?.apellido_nombre)||'Sin dato'}</td><td>{txt(e.cancha)||'Sin dato'}</td><td>{txt(e.sku||e.codigo||e.material)||'Sin SKU'}</td><td>{txt(e.motivo)||'Sin motivo'}</td><td>{e.__origen==='VOICE'?'Voice':'Gatera'}</td></tr>)}</tbody></table></div></>}</section>:<NoData>Elegí una pregunta para generar el análisis.</NoData>}</section>}
   </section>;
 }
