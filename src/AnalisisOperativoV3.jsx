@@ -73,6 +73,31 @@ function resumen(rows, errorRows, targetGeneral = 0) {
 const Stat = ({ title, value, detail, detail2 }) => <div><span>{title}</span><b>{value}</b><small>{detail}</small>{detail2 && <small>{detail2}</small>}</div>;
 const NoData = ({ children = 'Sin datos para el período seleccionado.' }) => <div className="notice">{children}</div>;
 
+
+async function cargarTablaCompleta(tabla) {
+  const tamanoPagina = 1000;
+  let desde = 0;
+  let todasLasFilas = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(tabla)
+      .select('*')
+      .order('id', { ascending: true })
+      .range(desde, desde + tamanoPagina - 1);
+
+    if (error) throw error;
+
+    const pagina = data || [];
+    todasLasFilas = todasLasFilas.concat(pagina);
+
+    if (pagina.length < tamanoPagina) break;
+    desde += tamanoPagina;
+  }
+
+  return todasLasFilas;
+}
+
 export default function AnalisisOperativoV3() {
   const [tab,setTab] = useState('dashboard');
   const [periodo,setPeriodo] = useState('mes');
@@ -95,16 +120,25 @@ export default function AnalisisOperativoV3() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [p,g,v,e] = await Promise.all([
-        supabase.from('picking').select('*'), supabase.from('errores_gatera').select('*'),
-        supabase.from('errores_voice').select('*'), supabase.from('empleados').select('*')
-      ]);
-      const err = p.error || g.error || v.error || e.error;
-      if (err) setMessage(err.message || 'No se pudieron cargar todos los datos.');
-      setPicking(p.data || []);
-      setErrors([...(g.data || []).map(r => ({...r,__origen:'GATERA'})), ...(v.data || []).map(r => ({...r,__origen:'VOICE'}))]);
-      setEmployees(e.data || []);
-      setLoading(false);
+      try {
+        const [p, g, v, e] = await Promise.all([
+          cargarTablaCompleta('picking'),
+          cargarTablaCompleta('errores_gatera'),
+          cargarTablaCompleta('errores_voice'),
+          cargarTablaCompleta('empleados')
+        ]);
+
+        setPicking(p);
+        setErrors([
+          ...g.map(r => ({ ...r, __origen: 'GATERA' })),
+          ...v.map(r => ({ ...r, __origen: 'VOICE' }))
+        ]);
+        setEmployees(e);
+      } catch (error) {
+        setMessage(error.message || 'No se pudieron cargar todos los datos.');
+      } finally {
+        setLoading(false);
+      }
     })();
   },[]);
 
